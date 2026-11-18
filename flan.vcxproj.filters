@@ -18,6 +18,9 @@
     <ClCompile Include="src\cli\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\core\index.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="src\crypto\sha256.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -36,6 +39,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\flan\http.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\flan\index.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\flan\sha256.hpp">

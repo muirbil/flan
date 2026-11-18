@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cstddef>
 #include <string>
+#include <vector>
 
 // Имена пакетов приходят из скачанных метаданных, из скомпилированной БД и из argv.
 // Всё это недоверенные данные, а попадают они в пути файлов, в имена .bat-прослоек
@@ -150,6 +151,124 @@ inline bool equalsIgnoreAsciiCase(const std::string& a, const std::string& b) {
 		if (std::tolower((unsigned char)a[i]) != std::tolower((unsigned char)b[i])) {
 			return false;
 		}
+	}
+
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Поля индекса формата 2 и манифестов (DESIGN.md §5.2). Генератор и клиент
+// проверяют их одним и тем же кодом.
+
+constexpr size_t MAX_DESCRIPTION_LENGTH = 100;
+constexpr size_t MAX_BINS = 8;
+
+inline std::string toLowerAscii(std::string s) {
+	for (char& c : s) {
+		c = (char)std::tolower((unsigned char)c);
+	}
+	return s;
+}
+
+// Имена каталогов в Windows нечувствительны к регистру: "RipGrep" и "ripgrep"
+// разошлись бы в индексе, но столкнулись бы на диске. Поэтому только строчные.
+inline bool isSafePackageName(const std::string& name) {
+	if (!isSafeName(name)) {
+		return false;
+	}
+
+	for (const char c : name) {
+		if (c >= 'A' && c <= 'Z') {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+// Описание только печатается: достаточно ограничить длину и отсечь управляющие символы.
+inline bool isSafeDescription(const std::string& description) {
+	if (description.length() > MAX_DESCRIPTION_LENGTH) {
+		return false;
+	}
+
+	for (const unsigned char c : description) {
+		if (c < 0x20 || c == 0x7F) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+// Сверх isHttpsUrl: только печатные ASCII без пробелов (строка уходит в WinHttpCrackUrl
+// и в вывод) и без «плавающих» ссылок /latest/ — их содержимое меняется,
+// и хэш однажды перестал бы совпадать.
+inline bool isSafePackageUrl(const std::string& url) {
+	if (!isHttpsUrl(url)) {
+		return false;
+	}
+
+	for (const unsigned char c : url) {
+		if (c <= 0x20 || c >= 0x7F) {
+			return false;
+		}
+	}
+
+	return toLowerAscii(url).find("/latest/") == std::string::npos;
+}
+
+// В индексе и квитанциях пути хранятся только в каноническом виде, который выдаёт
+// normalizeRelativePath. Любой другой вид ("a/b", "a\\\\b") там означает повреждение.
+inline bool isCanonicalRelativePath(const std::string& path) {
+	std::string normalized;
+	return normalizeRelativePath(path, normalized) && normalized == path;
+}
+
+// Имя команды — последний сегмент без ".exe" (в любом регистре).
+// Пустая строка — из этого пути команду не получить.
+inline std::string commandNameFromBin(const std::string& bin) {
+	const size_t slash = bin.find_last_of("\\/");
+	std::string last = bin.substr(slash == std::string::npos ? 0 : slash + 1);
+
+	if (last.length() <= 4 || !equalsIgnoreAsciiCase(last.substr(last.length() - 4), ".exe")) {
+		return std::string();
+	}
+
+	last.resize(last.length() - 4);
+	return isSafeName(last) ? last : std::string();
+}
+
+// Список bins: 1–8 канонических путей через ';', каждый оканчивается на .exe,
+// имена команд не повторяются без учёта регистра — как и файлы прослоек в bin\.
+// ';' в путях недопустим самим белым списком, поэтому разделитель однозначен.
+inline bool parseBinList(const std::string& list, std::vector<std::string>& bins) {
+	bins.clear();
+
+	size_t start = 0;
+	while (start <= list.length()) {
+		size_t end = list.find(';', start);
+		if (end == std::string::npos) {
+			end = list.length();
+		}
+
+		const std::string bin = list.substr(start, end - start);
+		const std::string command = toLowerAscii(commandNameFromBin(bin));
+
+		if (!isCanonicalRelativePath(bin) || command.empty() || bins.size() == MAX_BINS) {
+			bins.clear();
+			return false;
+		}
+
+		for (const std::string& previous : bins) {
+			if (toLowerAscii(commandNameFromBin(previous)) == command) {
+				bins.clear();
+				return false;
+			}
+		}
+
+		bins.push_back(bin);
+		start = end + 1;
 	}
 
 	return true;
