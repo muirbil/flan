@@ -149,6 +149,7 @@
   <ItemGroup>
     <ClInclude Include="include\flan\format.hpp" />
     <ClInclude Include="include\flan\fs.hpp" />
+    <ClInclude Include="include\flan\hex.hpp" />
     <ClInclude Include="include\flan\http.hpp" />
     <ClInclude Include="include\flan\index.hpp" />
     <ClInclude Include="include\flan\sha256.hpp" />

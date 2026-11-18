@@ -38,6 +38,9 @@
     <ClInclude Include="include\flan\fs.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\flan\hex.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="include\flan\http.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
