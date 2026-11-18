@@ -83,7 +83,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(ProjectDir)include;$(ProjectDir)src</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(ProjectDir)include;$(ProjectDir)third_party;$(ProjectDir)src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -100,7 +100,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(ProjectDir)include;$(ProjectDir)src</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(ProjectDir)include;$(ProjectDir)third_party;$(ProjectDir)src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -115,7 +115,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(ProjectDir)include;$(ProjectDir)src</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(ProjectDir)include;$(ProjectDir)third_party;$(ProjectDir)src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -130,7 +130,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(ProjectDir)include;$(ProjectDir)src</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(ProjectDir)include;$(ProjectDir)third_party;$(ProjectDir)src</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
@@ -140,19 +140,19 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="src\network\WinHTTP.cpp" />
-    <ClCompile Include="src\utils\crypto.cpp" />
-    <ClCompile Include="src\utils\fileSystem.cpp" />
-    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\cli\main.cpp" />
+    <ClCompile Include="src\crypto\sha256.cpp" />
+    <ClCompile Include="src\io\fs.cpp" />
+    <ClCompile Include="src\net\http.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="include\core\format.hpp" />
-    <ClInclude Include="include\network\WinHTTP.hpp" />
-    <ClInclude Include="include\utils\crypto.hpp" />
-    <ClInclude Include="include\utils\fileSystem.hpp" />
-    <ClInclude Include="include\utils\json.hpp" />
-    <ClInclude Include="include\utils\strings.hpp" />
-    <ClInclude Include="include\utils\validate.hpp" />
+    <ClInclude Include="include\flan\format.hpp" />
+    <ClInclude Include="include\flan\fs.hpp" />
+    <ClInclude Include="include\flan\http.hpp" />
+    <ClInclude Include="include\flan\sha256.hpp" />
+    <ClInclude Include="include\flan\strings.hpp" />
+    <ClInclude Include="include\flan\validate.hpp" />
+    <ClInclude Include="third_party\nlohmann\json.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

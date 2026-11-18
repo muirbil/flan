@@ -1,8 +1,8 @@
 #define WIN32_LEAN_AND_MEAN
 
 #include <shlobj.h>
-#include "utils/fileSystem.hpp"
-#include "utils/strings.hpp"
+#include "flan/fs.hpp"
+#include "flan/strings.hpp"
 #include <iostream>
 #include <string>
 #include <vector>

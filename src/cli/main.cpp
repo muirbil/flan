@@ -2,19 +2,19 @@
 #define NOMINMAX
 
 #include <Windows.h>
-#include "network/WinHTTP.hpp"
+#include "flan/http.hpp"
 #include <algorithm>
 #include <cstring>
 #include <iostream>
 #include <string>
 #include <vector>
-#include "utils/fileSystem.hpp"
+#include "flan/fs.hpp"
 #include <fstream>
-#include "core/format.hpp"
-#include "utils/json.hpp"
+#include "flan/format.hpp"
+#include "nlohmann/json.hpp"
 #include <filesystem>
-#include "utils/crypto.hpp"
-#include "utils/validate.hpp"
+#include "flan/sha256.hpp"
+#include "flan/validate.hpp"
 
 using json = nlohmann::json;
 

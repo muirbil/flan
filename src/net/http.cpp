@@ -8,8 +8,8 @@
 #include <string>
 #include <fstream>
 #include <vector>
-#include "network/WinHTTP.hpp"
-#include "utils/strings.hpp"
+#include "flan/http.hpp"
+#include "flan/strings.hpp"
 
 #pragma comment(lib, "winhttp.lib")
 
