@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="Source Files">
@@ -18,13 +18,10 @@
     <ClCompile Include="src\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="include\core\format.hpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="include\network\WinHTTP.hpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="src\network\WinHTTP.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\utils\crypto.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\utils\fileSystem.cpp">
@@ -32,13 +29,25 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="include\utils\fs.hpp">
+    <ClInclude Include="include\core\format.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\network\WinHTTP.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\utils\crypto.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\utils\fileSystem.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\utils\json.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\utils\strings.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\utils\validate.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

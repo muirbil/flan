@@ -15,6 +15,10 @@ constexpr uint64_t f_magic(char a, char b, char c, char d, char e, char f, char 
 
 constexpr uint64_t FLAN_MAGIC = f_magic('F', 'L', 'A', 'N', 'D', 'R', 'E');
 
+// Максимальная версия формата, которую понимает эта сборка.
+// База с большим номером отвергается: лучше внятная ошибка, чем разбор чужой раскладки.
+constexpr uint32_t FLAN_DB_VERSION = 1;
+
 // Заголовок файла db.flan
 struct CoreHeader {
 	uint64_t timestamp;									// временная метка бд: offset 0
