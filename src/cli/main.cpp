@@ -15,8 +15,11 @@
 #include <filesystem>
 #include "flan/sha256.hpp"
 #include "flan/validate.hpp"
-#include "cli/exit_code.hpp"
+#include "core/exit_code.hpp"
 #include "core/lock.hpp"
+#include "core/paths.hpp"
+#include "core/sync.hpp"
+#include "flan/index.hpp"
 
 using json = nlohmann::json;
 
@@ -175,16 +178,16 @@ int main(int argc, char* argv[]) {
 		return exitWith(ExitCode::Error);
 	}
 
-	std::string dbPath = userDir + "\\db";
-	std::string cachePath = userDir + "\\cache";
-	std::string appsPath = userDir + "\\apps";
-	std::string binPath = userDir + "\\bin";
-	std::string tempPath = userDir + "\\temp";
+	const FlanPaths paths = FlanPaths::under(userDir);
 
-	// Что-бы папки создавались при любой команде.
-	if (!createDirectory(dbPath.c_str()) || !createDirectory(cachePath.c_str()) ||
-		!createDirectory(appsPath.c_str()) || !createDirectory(binPath.c_str()) ||
-		!createDirectory(tempPath.c_str())) {
+	std::string dbPath = userDir + "\\db";
+	std::string appsPath = paths.apps;
+	std::string binPath = paths.bin;
+	std::string tempPath = paths.tmp;
+
+	// Раскладка DESIGN.md §7.1. cache\ появится на этапе 2 вместе с кэшем по sha256.
+	if (!createDirectory(paths.apps.c_str()) || !createDirectory(paths.bin.c_str()) ||
+		!createDirectory(paths.state.c_str()) || !createDirectory(paths.tmp.c_str())) {
 		std::cerr << "Fatal: could not create the flan directories under " << userDir << std::endl;
 		return exitWith(ExitCode::Error);
 	}
@@ -193,7 +196,7 @@ int main(int argc, char* argv[]) {
 	// одновременно перезаписали бы друг другу базу, архивы и реестр. list и installed только читают.
 	FlanLock lock;
 	if (command == "sync" || command == "install" || command == "uninstall") {
-		switch (lock.acquire(userDir + "\\lock", LOCK_TIMEOUT_MS)) {
+		switch (lock.acquire(paths.lock, LOCK_TIMEOUT_MS)) {
 		case FlanLock::Result::Acquired:
 			break;
 		case FlanLock::Result::Busy:
@@ -206,21 +209,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	if (command == "sync") {
-		std::cout << "Syncing package database from remote repository..." << std::endl;
-
-		std::string dbFile = dbPath + "\\core.flan";
-		std::string dbUrl = REPO_BASE + "/core.flan";
-
-		std::cout << "Downloading database from: " << dbUrl << std::endl;
-
-		if (downloadFile(dbUrl, dbFile))
-		{
-			std::cout << "Success! Database synced and updated." << std::endl;
-		}
-		else {
-			std::cerr << "Failed to download database. Check your internet connection." << std::endl;
-			return exitWith(ExitCode::Network);
-		}
+		return exitWith(syncIndex(paths));
 	}
 
 	else if (command == "install") {
@@ -507,21 +496,44 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
+	// До этапа 5 list показывает доступные пакеты, а установленные — installed (DESIGN.md §7.7).
 	else if (command == "list") {
-		CoreHeader header = {};
-		std::vector<PackageRecord> packages;
-
-		if (!loadDatabase(dbPath + "\\core.flan", header, packages)) {
+		IndexView index;
+		std::string error;
+		if (!loadLocalIndex(paths, index, error)) {
+			std::cerr << "Error: " << error << "." << std::endl;
 			return exitWith(ExitCode::Error);
 		}
 
-		std::cout << "Database version: " << header.db_version << std::endl;
-		std::cout << "Available packages: " << header.package_count << std::endl;
-		std::cout << "------------------------------" << std::endl;
+		std::cout << "Available packages (index generated " << formatUnixTime(index.generatedAt()) << "):" << std::endl;
 
-		for (const PackageRecord& record : packages) {
-			std::cout << "[" << record.meta_id << "] " << record.name
-				<< " (Hash: " << std::hex << record.hash_v << std::dec << ")" << std::endl;
+		// Записи отсортированы по (name, arch): сборки одного пакета идут подряд.
+		IndexRecord current;
+		std::string archs;
+		for (uint32_t i = 0; i <= index.count(); i++) {
+			IndexRecord record;
+			if (i < index.count() && !index.record(i, record, error)) {
+				std::cerr << "Error: the local index is corrupted (" << error << "). Run 'flan sync' to fetch it again." << std::endl;
+				return exitWith(ExitCode::Integrity);
+			}
+
+			if (i > 0 && (i == index.count() || record.name != current.name)) {
+				std::cout << "  " << current.name << "  " << current.version << "  [" << archs << "]";
+				if (!current.description.empty()) {
+					std::cout << "  " << current.description;
+				}
+				std::cout << std::endl;
+				archs.clear();
+			}
+
+			if (i < index.count()) {
+				archs += (archs.empty() ? "" : ", ") + std::string(archName(record.arch));
+				current = record;
+			}
+		}
+
+		if (index.count() == 0) {
+			std::cout << "  (none)" << std::endl;
 		}
 	}
 

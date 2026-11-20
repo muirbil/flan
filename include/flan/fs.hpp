@@ -1,10 +1,15 @@
 #pragma once
+#include <cstdint>
 #include <string>
 #include <vector>
 
 std::string getUserDirectory();
 bool createDirectory(const char* fullPath);
 bool deleteFile(const char* fullPath);
+
+// Файл целиком, но не больше limit байт: размер проверяется до чтения,
+// поэтому огромный файл не попадает в память. tooLarge различает «больше limit» и «не прочитать».
+bool readWholeFile(const std::string& path, uint64_t limit, std::vector<uint8_t>& out, bool& tooLarge);
 bool extractArchive(const std::string& archivePath, const std::string& destinationDir);
 
 // Имена внутри архива — через тот же System32\tar.exe, которым клиент распаковывает.

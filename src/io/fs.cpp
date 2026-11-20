@@ -54,6 +54,46 @@ bool deleteFile(const char* fullPath) {
     return DeleteFileA(fullPath) != 0;
 }
 
+bool readWholeFile(const std::string& path, uint64_t limit, std::vector<uint8_t>& out, bool& tooLarge) {
+    out.clear();
+    tooLarge = false;
+
+    const HANDLE file = CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    LARGE_INTEGER size = {};
+    if (!GetFileSizeEx(file, &size) || size.QuadPart < 0) {
+        CloseHandle(file);
+        return false;
+    }
+
+    if ((uint64_t)size.QuadPart > limit) {
+        tooLarge = true;
+        CloseHandle(file);
+        return false;
+    }
+
+    out.resize((size_t)size.QuadPart);
+
+    size_t done = 0;
+    while (done < out.size()) {
+        const DWORD chunk = (DWORD)((out.size() - done) > (1u << 20) ? (1u << 20) : (out.size() - done));
+        DWORD read = 0;
+        if (!ReadFile(file, out.data() + done, chunk, &read, NULL) || read == 0) {
+            CloseHandle(file);
+            out.clear();
+            return false;
+        }
+        done += read;
+    }
+
+    CloseHandle(file);
+    return true;
+}
+
 namespace {
 
     // Путь к tar.exe задаётся явно. Через system() строка уходила в cmd.exe, который

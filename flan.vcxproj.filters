@@ -27,6 +27,9 @@
     <ClCompile Include="src\crypto\sha256.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\core\sync.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="src\io\fs.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -35,10 +38,16 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\cli\exit_code.hpp">
+    <ClInclude Include="src\core\exit_code.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\core\lock.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\paths.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\sync.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\flan\format.hpp">

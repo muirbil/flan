@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -143,13 +143,16 @@
     <ClCompile Include="src\cli\main.cpp" />
     <ClCompile Include="src\core\index.cpp" />
     <ClCompile Include="src\core\lock.cpp" />
+    <ClCompile Include="src\core\sync.cpp" />
     <ClCompile Include="src\crypto\sha256.cpp" />
     <ClCompile Include="src\io\fs.cpp" />
     <ClCompile Include="src\net\http.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="src\cli\exit_code.hpp" />
+    <ClInclude Include="src\core\exit_code.hpp" />
     <ClInclude Include="src\core\lock.hpp" />
+    <ClInclude Include="src\core\paths.hpp" />
+    <ClInclude Include="src\core\sync.hpp" />
     <ClInclude Include="include\flan\format.hpp" />
     <ClInclude Include="include\flan\fs.hpp" />
     <ClInclude Include="include\flan\hex.hpp" />
