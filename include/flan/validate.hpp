@@ -5,12 +5,11 @@
 #include <string>
 #include <vector>
 
-// Имена пакетов приходят из скачанных метаданных, из скомпилированной БД и из argv.
-// Всё это недоверенные данные, а попадают они в пути файлов, в имена .bat-прослоек
-// и в аргументы запускаемых процессов. Поэтому единая строгая проверка на входе.
+// Имена и пути приходят из индекса, манифестов, квитанций и argv. Всё это недоверенные
+// данные, а попадают они в пути файлов, в имена прослоек и в аргументы запускаемых
+// процессов. Поэтому единая строгая проверка на входе — общая для клиента и генератора.
 
 constexpr size_t MAX_NAME_LENGTH = 64;
-constexpr size_t MAX_VERSION_LENGTH = 64;
 constexpr size_t MAX_URL_LENGTH = 2048;
 
 // Вместе с путём профиля должно укладываться в MAX_PATH, иначе ANSI-функции ФС откажут.
@@ -101,22 +100,6 @@ inline bool normalizeRelativePath(const std::string& path, std::string& normaliz
 		normalized += segment;
 
 		start = end + 1;
-	}
-
-	return true;
-}
-
-// Версия в пути не используется, но печатается и пишется в реестр,
-// поэтому достаточно отсечь управляющие символы (в том числе ESC-последовательности).
-inline bool isSafeVersion(const std::string& version) {
-	if (version.empty() || version.length() > MAX_VERSION_LENGTH) {
-		return false;
-	}
-
-	for (const unsigned char c : version) {
-		if (c < 0x20 || c == 0x7F) {
-			return false;
-		}
 	}
 
 	return true;
