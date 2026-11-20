@@ -85,7 +85,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(FlanRoot)include;$(FlanRoot)third_party;$(FlanRoot)tools\flan-build</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(FlanRoot)include;$(FlanRoot)third_party;$(FlanRoot)tools\flan-build;$(FlanRoot)src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -102,7 +102,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(FlanRoot)include;$(FlanRoot)third_party;$(FlanRoot)tools\flan-build</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(FlanRoot)include;$(FlanRoot)third_party;$(FlanRoot)tools\flan-build;$(FlanRoot)src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -117,7 +117,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(FlanRoot)include;$(FlanRoot)third_party;$(FlanRoot)tools\flan-build</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(FlanRoot)include;$(FlanRoot)third_party;$(FlanRoot)tools\flan-build;$(FlanRoot)src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -134,7 +134,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(FlanRoot)include;$(FlanRoot)third_party;$(FlanRoot)tools\flan-build</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(FlanRoot)include;$(FlanRoot)third_party;$(FlanRoot)tools\flan-build;$(FlanRoot)src</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -144,9 +144,13 @@
   <ItemGroup>
     <ClCompile Include="main.cpp" />
     <ClCompile Include="test_index.cpp" />
+    <ClCompile Include="test_receipt.cpp" />
     <ClCompile Include="test_validate.cpp" />
-    <!-- Тестируемый код: клиентский разбор индекса и писатель генератора -->
+    <!-- Тестируемый код: разбор индекса, квитанции и прослойки клиента, писатель генератора -->
     <ClCompile Include="..\src\core\index.cpp" />
+    <ClCompile Include="..\src\core\receipt.cpp" />
+    <ClCompile Include="..\src\core\shim.cpp" />
+    <ClCompile Include="..\src\io\fs.cpp" />
     <ClCompile Include="..\tools\flan-build\writer.cpp" />
   </ItemGroup>
   <ItemGroup>

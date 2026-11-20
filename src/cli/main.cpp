@@ -16,6 +16,7 @@
 #include "flan/sha256.hpp"
 #include "flan/validate.hpp"
 #include "core/exit_code.hpp"
+#include "core/install.hpp"
 #include "core/lock.hpp"
 #include "core/paths.hpp"
 #include "core/sync.hpp"
@@ -206,6 +207,9 @@ int main(int argc, char* argv[]) {
 		case FlanLock::Result::Failed:
 			return exitWith(ExitCode::Error);
 		}
+
+		// Каталоги старых версий, занятые в прошлый раз запущенной программой (§7.6, шаг 9).
+		processPendingDeletes(paths);
 	}
 
 	if (command == "sync") {
@@ -213,205 +217,13 @@ int main(int argc, char* argv[]) {
 	}
 
 	else if (command == "install") {
-		if (argc < 3)
-		{
+		if (argc < 3) {
 			std::cerr << "Please specify a package to install." << std::endl;
 			std::cerr << "Usage: flan install <package_name>" << std::endl;
 			return exitWith(ExitCode::Usage);
 		}
 
-		std::string target_pkg = argv[2];
-		if (!isSafeName(target_pkg)) {
-			std::cerr << "Error: '" << target_pkg << "' is not a valid package name." << std::endl;
-			return exitWith(ExitCode::Usage);
-		}
-
-		std::cout << "Looking for '" << target_pkg << "' in the database..." << std::endl;
-
-		CoreHeader header = {};
-		std::vector<PackageRecord> packages;
-		if (!loadDatabase(dbPath + "\\core.flan", header, packages)) {
-			return exitWith(ExitCode::Error);
-		}
-
-		const PackageRecord* targetEntry = nullptr;
-		for (const PackageRecord& record : packages) {
-			if (record.name == target_pkg) {
-				targetEntry = &record;
-				break;
-			}
-		}
-
-		if (!targetEntry) {
-			std::cerr << "Package '" << target_pkg << "' not found in the database." << std::endl;
-			return exitWith(ExitCode::NotFound);
-		}
-
-		std::cout << "Package [" << targetEntry->meta_id << "] '" << target_pkg << "' found in the database." << std::endl;
-		std::cout << "Fetching metadata from remote repository..." << std::endl;
-
-		std::string meta_filename = std::to_string(targetEntry->meta_id) + ".json";
-		std::string metadataUrl = REPO_BASE + "/meta/" + meta_filename;
-		std::string temp_meta_path = tempPath + "\\" + meta_filename;
-
-		if (!downloadFile(metadataUrl, temp_meta_path)) {
-			std::cerr << "Error: Failed to fetch metadata from the repository." << std::endl;
-			return exitWith(ExitCode::Network);
-		}
-
-		json metadata;
-		const bool metadataRead = readJsonFile(temp_meta_path, metadata);
-		deleteFile(temp_meta_path.c_str());
-
-		if (!metadataRead || !metadata.is_object()) {
-			std::cerr << "Error: Failed to parse metadata JSON." << std::endl;
-			return exitWith(ExitCode::Integrity);
-		}
-
-		std::cout << "Metadata successfully downloaded!" << std::endl;
-
-		std::string package_name;
-		std::string package_version;
-		std::string download_url;
-		std::string bin_name;
-		std::string expected_hash;
-
-		if (!readString(metadata, "name", package_name) ||
-			!readString(metadata, "version", package_version) ||
-			!readString(metadata, "url", download_url) ||
-			!readString(metadata, "bin", bin_name) ||
-			!readString(metadata, "hash", expected_hash)) {
-			return exitWith(ExitCode::Integrity);
-		}
-
-		// name и bin становятся частями путей и именем .bat-прослойки.
-		std::string bin_relative;
-		if (!isSafeName(package_name) || !normalizeRelativePath(bin_name, bin_relative) || !isSafeVersion(package_version)) {
-			std::cerr << "Error: metadata contains an unsafe name. Refusing to install." << std::endl;
-			return exitWith(ExitCode::Integrity);
-		}
-
-		// База — доверенный индекс, метаданные — отдельный документ. Если они расходятся,
-		// под именем одного пакета подставлен другой.
-		if (package_name != target_pkg) {
-			std::cerr << "Error: metadata declares package '" << package_name
-				<< "' but the database entry is '" << target_pkg << "'. Aborting." << std::endl;
-			return exitWith(ExitCode::Integrity);
-		}
-
-		if (!isHttpsUrl(download_url)) {
-			std::cerr << "Error: package URL must use https://. Refusing to download over an insecure channel." << std::endl;
-			return exitWith(ExitCode::Integrity);
-		}
-
-		std::cout << "Version: " << package_version << std::endl;
-		std::cout << "Downloading package from: " << download_url << std::endl;
-
-		std::string app_dir = appsPath + "\\" + package_name;
-		std::string temp_archive = tempPath + "\\" + package_name + ".zip";
-
-		if (!downloadFile(download_url, temp_archive)) {
-			std::cerr << "Failed to download the package archive." << std::endl;
-			return exitWith(ExitCode::Network);
-		}
-
-		std::cout << "Archive downloaded. Verifying integrity..." << std::endl;
-
-		// Verify the integrity of the downloaded archive using SHA256 hash
-		std::string actual_hash = crypto::calculateSHA256(temp_archive);
-
-		if (actual_hash.empty() || !equalsIgnoreAsciiCase(actual_hash, expected_hash)) {
-			std::cerr << "Hash mismatch! The downloaded file may be corrupted or tampered with." << std::endl;
-			std::cerr << "Expected: " << expected_hash << std::endl;
-			std::cerr << "Actual:   " << actual_hash << std::endl;
-			std::cerr << "The file might be corrupted or compromised. Aborting installation." << std::endl;
-
-			deleteFile(temp_archive.c_str());
-			return exitWith(ExitCode::Integrity);
-		}
-
-		std::cout << "Integrity verified. Extracting package..." << std::endl;
-
-		if (!createDirectory(app_dir.c_str())) {
-			std::cerr << "Error: could not create " << app_dir << std::endl;
-			deleteFile(temp_archive.c_str());
-			return exitWith(ExitCode::Error);
-		}
-
-		if (!extractArchive(temp_archive, app_dir)) {
-			std::cerr << "Failed to extract package." << std::endl;
-			deleteFile(temp_archive.c_str());
-			return exitWith(ExitCode::Error);
-		}
-
-		deleteFile(temp_archive.c_str());
-		std::cout << "Package " << package_name << " extracted successfully." << std::endl;
-
-		// Запускается именно то, что было распаковано из проверенного архива.
-		// Повторная загрузка download_url прямо в exe_path обходила проверку хэша целиком.
-		std::error_code ec;
-		std::string exe_path = app_dir + "\\" + bin_relative;
-
-		if (!std::filesystem::is_regular_file(exe_path, ec)) {
-			std::cerr << "Error: the archive does not contain '" << bin_name << "'. Aborting installation." << std::endl;
-			std::filesystem::remove_all(app_dir, ec);
-			return exitWith(ExitCode::Integrity);
-		}
-
-		std::cout << "Package successfully installed to: " << exe_path << std::endl;
-
-		// Имя команды — последний сегмент пути без расширения .exe (в любом регистре).
-		std::string command_name = bin_relative.substr(bin_relative.find_last_of('\\') + 1);
-		if (command_name.length() > 4 &&
-			equalsIgnoreAsciiCase(command_name.substr(command_name.length() - 4), ".exe")) {
-			command_name = command_name.substr(0, command_name.length() - 4);
-		}
-
-		if (!isSafeName(command_name)) {
-			std::cerr << "Error: '" << bin_name << "' does not yield a valid command name." << std::endl;
-			std::filesystem::remove_all(app_dir, ec);
-			return exitWith(ExitCode::Integrity);
-		}
-
-		// temporary band-aid solution for creating a shim for the executable
-		std::string shim_path = binPath + "\\" + command_name + ".bat";
-		std::ofstream shim_file(shim_path);
-
-		if (shim_file.is_open()) {
-			shim_file << "@echo off\n";
-			shim_file << "\"" << exe_path << "\" %*\n";
-			shim_file.close();
-			std::cout << "Shim created. Now you can use '" << command_name << "' in your terminal!" << std::endl;
-		}
-		else {
-			std::cerr << "Warning: failed to create shim file for " << command_name << std::endl;
-		}
-
-		// Трекинг установленного пакета через локальный реестр
-		std::string registry_path = userDir + "\\installed.json";
-		json registry;
-
-		// Попытка его прочитать. Повреждённый файл — не повод падать: начинаем с чистого листа.
-		if (!readJsonFile(registry_path, registry) || !registry.is_object()) {
-			registry = json::object();
-		}
-
-		registry[package_name] = {
-			{"id", targetEntry->meta_id},
-			{"version", package_version},
-			{"shim", command_name}
-		};
-
-		std::ofstream reg_out(registry_path);
-		if (reg_out.is_open())
-		{
-			reg_out << registry.dump(4);
-			reg_out.close();
-			std::cout << "Registry updated. " << package_name << " is now tracked by flan." << std::endl;
-		}
-		else {
-			std::cerr << "Warning: Failed to update local registry." << std::endl;
-		}
+		return exitWith(installPackage(paths, argv[2]));
 	}
 
 	else if (command == "uninstall") {

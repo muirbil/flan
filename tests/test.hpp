@@ -13,3 +13,4 @@ void check(bool ok, const std::string& label, const std::string& detail = std::s
 // Наборы. Каждый живёт в своём файле.
 void runValidateTests();
 void runIndexTests();
+void runReceiptTests();

@@ -94,6 +94,45 @@ bool readWholeFile(const std::string& path, uint64_t limit, std::vector<uint8_t>
     return true;
 }
 
+bool saveFileAtomically(const std::string& path, const std::string& data) {
+    const std::string temporary = path + ".tmp";
+
+    const HANDLE file = CreateFileA(temporary.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    size_t done = 0;
+    bool ok = true;
+    while (ok && done < data.size()) {
+        const DWORD chunk = (DWORD)((data.size() - done) > (1u << 20) ? (1u << 20) : (data.size() - done));
+        DWORD written = 0;
+        ok = WriteFile(file, data.data() + done, chunk, &written, NULL) && written == chunk;
+        done += written;
+    }
+
+    // Данные должны быть на диске до переименования: иначе после сбоя питания
+    // на месте файла может оказаться пустышка с правильным именем.
+    ok = ok && FlushFileBuffers(file);
+    CloseHandle(file);
+
+    if (!ok || !MoveFileExA(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        DeleteFileA(temporary.c_str());
+        return false;
+    }
+    return true;
+}
+
+bool isDirectory(const std::string& path) {
+    const DWORD attributes = GetFileAttributesA(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+bool isRegularFile(const std::string& path) {
+    const DWORD attributes = GetFileAttributesA(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
+}
+
 namespace {
 
     // Путь к tar.exe задаётся явно. Через system() строка уходила в cmd.exe, который
