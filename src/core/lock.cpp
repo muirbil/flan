@@ -23,20 +23,25 @@ FlanLock::Result FlanLock::acquire(const std::string& path, unsigned timeoutMs) 
 
 	for (;;) {
 		// Нулевой share mode: пока файл открыт, второй flan получает ERROR_SHARING_VIOLATION.
-		// FILE_FLAG_DELETE_ON_CLOSE: файл исчезает, как только закрыт последний дескриптор, —
-		// в том числе когда процесс убит, — поэтому «зависшей» блокировки не бывает.
-		const HANDLE handle = CreateFileW(widePath.c_str(), GENERIC_READ | GENERIC_WRITE | DELETE, 0, NULL,
-			OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_DELETE_ON_CLOSE, NULL);
+		// Файл не удаляется при закрытии (без FILE_FLAG_DELETE_ON_CLOSE): иначе в окне
+		// «удаление ещё не завершено» система отвечает ERROR_ACCESS_DENIED, и «занято»
+		// становится неотличимо от настоящей ошибки прав.
+		const HANDLE handle = CreateFileW(widePath.c_str(), GENERIC_READ | GENERIC_WRITE, 0, NULL,
+			OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 
 		if (handle != INVALID_HANDLE_VALUE) {
 			handle_ = handle;
 			return Result::Acquired;
 		}
 
-		// ERROR_ACCESS_DENIED приходит и тогда, когда предыдущий flan только что закрыл файл
-		// и система его ещё удаляет: это тоже «занято», а не настоящая ошибка доступа.
 		const DWORD error = GetLastError();
-		if (error != ERROR_SHARING_VIOLATION && error != ERROR_ACCESS_DENIED) {
+		if (error == ERROR_ACCESS_DENIED) {
+			std::cerr << "Error: access denied to the lock file " << path
+				<< ". Check the permissions and the read-only attribute of this file and its folder." << std::endl;
+			return Result::Failed;
+		}
+
+		if (error != ERROR_SHARING_VIOLATION) {
 			std::cerr << "Error: cannot open the lock file " << path << " (code " << error << ")." << std::endl;
 			return Result::Failed;
 		}
