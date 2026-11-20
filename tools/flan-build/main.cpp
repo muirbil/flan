@@ -226,13 +226,19 @@ namespace {
 			return 1;
 		}
 
-		for (const Decision& decision : decisions) {
-			manifest.document["arch"][decision.archKey]["sha256"] = decision.newHash;
-		}
+		// Повторный hash без изменений не трогает файл вовсе: ни байты, ни время изменения.
+		const bool changed = std::any_of(decisions.begin(), decisions.end(),
+			[](const Decision& decision) { return decision.oldHash != decision.newHash; });
 
-		if (!saveManifest(manifest, error)) {
-			std::cerr << "Error: " << error << std::endl;
-			return 1;
+		if (changed) {
+			for (const Decision& decision : decisions) {
+				manifest.document["arch"][decision.archKey]["sha256"] = decision.newHash;
+			}
+
+			if (!saveManifest(manifest, error)) {
+				std::cerr << "Error: " << error << std::endl;
+				return 1;
+			}
 		}
 
 		for (const Decision& decision : decisions) {
@@ -253,7 +259,12 @@ namespace {
 			std::cerr << "WARNING: " << warning << std::endl;
 		}
 
-		std::cout << "Updated " << manifestPath.filename().string() << "." << std::endl;
+		if (changed) {
+			std::cout << "Updated " << manifestPath.filename().string() << "." << std::endl;
+		}
+		else {
+			std::cout << manifestPath.filename().string() << " is up to date; nothing written." << std::endl;
+		}
 		return 0;
 	}
 

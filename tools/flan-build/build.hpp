@@ -27,6 +27,11 @@ struct Manifest {
 	std::string binList;								// те же пути через ';', как в индексе
 	std::vector<ArchTarget> targets;
 	ordered_json document;								// исходный документ: hash вписывает в него хэши
+
+	// Как был записан исходный файл. При перезаписи сохраняется, иначе при core.autocrlf
+	// каждый hash превращал бы CRLF рабочей копии в LF.
+	bool crlf = false;
+	bool bom = false;
 };
 
 // Читает и проверяет манифест (DESIGN.md §5.2). Все найденные ошибки — в errors,

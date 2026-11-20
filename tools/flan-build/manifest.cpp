@@ -79,6 +79,8 @@ bool loadManifest(const fs::path& file, bool requireHash, Manifest& out, std::ve
 	}
 
 	const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+	out.crlf = text.find("\r\n") != std::string::npos;
+	out.bom = text.compare(0, 3, "\xEF\xBB\xBF") == 0;
 
 	try {
 		out.document = ordered_json::parse(text);
@@ -258,6 +260,17 @@ bool loadManifest(const fs::path& file, bool requireHash, Manifest& out, std::ve
 bool saveManifest(const Manifest& manifest, std::string& error) {
 	// ordered_json сохраняет порядок полей, каким его написал автор. Отступ — 2 пробела,
 	// как в примере DESIGN.md §5.2; UTF-8 в описании остаётся как есть.
-	const std::string text = manifest.document.dump(2) + "\n";
+	const std::string json = manifest.document.dump(2) + "\n";
+
+	// Переводы строк и BOM — как в исходном файле. Внутри JSON-строк сырых '\n' не бывает
+	// (они экранируются), поэтому заменяются только переводы строк самой разметки.
+	std::string text = manifest.bom ? "\xEF\xBB\xBF" : "";
+	for (const char c : json) {
+		if (c == '\n' && manifest.crlf) {
+			text += '\r';
+		}
+		text += c;
+	}
+
 	return writeFileAtomically(manifest.path, text.data(), text.size(), error);
 }
