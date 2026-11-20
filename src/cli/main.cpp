@@ -15,6 +15,8 @@
 #include <filesystem>
 #include "flan/sha256.hpp"
 #include "flan/validate.hpp"
+#include "cli/exit_code.hpp"
+#include "core/lock.hpp"
 
 using json = nlohmann::json;
 
@@ -160,7 +162,7 @@ int main(int argc, char* argv[]) {
 
 	if (argc < 2) {
 		printUsage();
-		return 1;
+		return exitWith(ExitCode::Usage);
 	}
 
 	std::string command = argv[1];
@@ -170,7 +172,7 @@ int main(int argc, char* argv[]) {
 	// то есть в каталоги в корне текущего диска.
 	if (userDir.empty()) {
 		std::cerr << "Fatal: could not determine the user profile directory." << std::endl;
-		return 1;
+		return exitWith(ExitCode::Error);
 	}
 
 	std::string dbPath = userDir + "\\db";
@@ -184,7 +186,23 @@ int main(int argc, char* argv[]) {
 		!createDirectory(appsPath.c_str()) || !createDirectory(binPath.c_str()) ||
 		!createDirectory(tempPath.c_str())) {
 		std::cerr << "Fatal: could not create the flan directories under " << userDir << std::endl;
-		return 1;
+		return exitWith(ExitCode::Error);
+	}
+
+	// Команды, меняющие состояние, работают под блокировкой (DESIGN.md §7.6): два flan
+	// одновременно перезаписали бы друг другу базу, архивы и реестр. list и installed только читают.
+	FlanLock lock;
+	if (command == "sync" || command == "install" || command == "uninstall") {
+		switch (lock.acquire(userDir + "\\lock", LOCK_TIMEOUT_MS)) {
+		case FlanLock::Result::Acquired:
+			break;
+		case FlanLock::Result::Busy:
+			std::cerr << "Error: another flan process is running (" << userDir << "\\lock is held for more than "
+				<< (LOCK_TIMEOUT_MS / 1000) << " seconds)." << std::endl;
+			return exitWith(ExitCode::Locked);
+		case FlanLock::Result::Failed:
+			return exitWith(ExitCode::Error);
+		}
 	}
 
 	if (command == "sync") {
@@ -201,7 +219,7 @@ int main(int argc, char* argv[]) {
 		}
 		else {
 			std::cerr << "Failed to download database. Check your internet connection." << std::endl;
-			return 1;
+			return exitWith(ExitCode::Network);
 		}
 	}
 
@@ -210,13 +228,13 @@ int main(int argc, char* argv[]) {
 		{
 			std::cerr << "Please specify a package to install." << std::endl;
 			std::cerr << "Usage: flan install <package_name>" << std::endl;
-			return 1;
+			return exitWith(ExitCode::Usage);
 		}
 
 		std::string target_pkg = argv[2];
 		if (!isSafeName(target_pkg)) {
 			std::cerr << "Error: '" << target_pkg << "' is not a valid package name." << std::endl;
-			return 1;
+			return exitWith(ExitCode::Usage);
 		}
 
 		std::cout << "Looking for '" << target_pkg << "' in the database..." << std::endl;
@@ -224,7 +242,7 @@ int main(int argc, char* argv[]) {
 		CoreHeader header = {};
 		std::vector<PackageRecord> packages;
 		if (!loadDatabase(dbPath + "\\core.flan", header, packages)) {
-			return 1;
+			return exitWith(ExitCode::Error);
 		}
 
 		const PackageRecord* targetEntry = nullptr;
@@ -237,7 +255,7 @@ int main(int argc, char* argv[]) {
 
 		if (!targetEntry) {
 			std::cerr << "Package '" << target_pkg << "' not found in the database." << std::endl;
-			return 1;
+			return exitWith(ExitCode::NotFound);
 		}
 
 		std::cout << "Package [" << targetEntry->meta_id << "] '" << target_pkg << "' found in the database." << std::endl;
@@ -249,7 +267,7 @@ int main(int argc, char* argv[]) {
 
 		if (!downloadFile(metadataUrl, temp_meta_path)) {
 			std::cerr << "Error: Failed to fetch metadata from the repository." << std::endl;
-			return 1;
+			return exitWith(ExitCode::Network);
 		}
 
 		json metadata;
@@ -258,7 +276,7 @@ int main(int argc, char* argv[]) {
 
 		if (!metadataRead || !metadata.is_object()) {
 			std::cerr << "Error: Failed to parse metadata JSON." << std::endl;
-			return 1;
+			return exitWith(ExitCode::Integrity);
 		}
 
 		std::cout << "Metadata successfully downloaded!" << std::endl;
@@ -274,14 +292,14 @@ int main(int argc, char* argv[]) {
 			!readString(metadata, "url", download_url) ||
 			!readString(metadata, "bin", bin_name) ||
 			!readString(metadata, "hash", expected_hash)) {
-			return 1;
+			return exitWith(ExitCode::Integrity);
 		}
 
 		// name и bin становятся частями путей и именем .bat-прослойки.
 		std::string bin_relative;
 		if (!isSafeName(package_name) || !normalizeRelativePath(bin_name, bin_relative) || !isSafeVersion(package_version)) {
 			std::cerr << "Error: metadata contains an unsafe name. Refusing to install." << std::endl;
-			return 1;
+			return exitWith(ExitCode::Integrity);
 		}
 
 		// База — доверенный индекс, метаданные — отдельный документ. Если они расходятся,
@@ -289,12 +307,12 @@ int main(int argc, char* argv[]) {
 		if (package_name != target_pkg) {
 			std::cerr << "Error: metadata declares package '" << package_name
 				<< "' but the database entry is '" << target_pkg << "'. Aborting." << std::endl;
-			return 1;
+			return exitWith(ExitCode::Integrity);
 		}
 
 		if (!isHttpsUrl(download_url)) {
 			std::cerr << "Error: package URL must use https://. Refusing to download over an insecure channel." << std::endl;
-			return 1;
+			return exitWith(ExitCode::Integrity);
 		}
 
 		std::cout << "Version: " << package_version << std::endl;
@@ -305,7 +323,7 @@ int main(int argc, char* argv[]) {
 
 		if (!downloadFile(download_url, temp_archive)) {
 			std::cerr << "Failed to download the package archive." << std::endl;
-			return 1;
+			return exitWith(ExitCode::Network);
 		}
 
 		std::cout << "Archive downloaded. Verifying integrity..." << std::endl;
@@ -320,7 +338,7 @@ int main(int argc, char* argv[]) {
 			std::cerr << "The file might be corrupted or compromised. Aborting installation." << std::endl;
 
 			deleteFile(temp_archive.c_str());
-			return 1;
+			return exitWith(ExitCode::Integrity);
 		}
 
 		std::cout << "Integrity verified. Extracting package..." << std::endl;
@@ -328,13 +346,13 @@ int main(int argc, char* argv[]) {
 		if (!createDirectory(app_dir.c_str())) {
 			std::cerr << "Error: could not create " << app_dir << std::endl;
 			deleteFile(temp_archive.c_str());
-			return 1;
+			return exitWith(ExitCode::Error);
 		}
 
 		if (!extractArchive(temp_archive, app_dir)) {
 			std::cerr << "Failed to extract package." << std::endl;
 			deleteFile(temp_archive.c_str());
-			return 1;
+			return exitWith(ExitCode::Error);
 		}
 
 		deleteFile(temp_archive.c_str());
@@ -348,7 +366,7 @@ int main(int argc, char* argv[]) {
 		if (!std::filesystem::is_regular_file(exe_path, ec)) {
 			std::cerr << "Error: the archive does not contain '" << bin_name << "'. Aborting installation." << std::endl;
 			std::filesystem::remove_all(app_dir, ec);
-			return 1;
+			return exitWith(ExitCode::Integrity);
 		}
 
 		std::cout << "Package successfully installed to: " << exe_path << std::endl;
@@ -363,7 +381,7 @@ int main(int argc, char* argv[]) {
 		if (!isSafeName(command_name)) {
 			std::cerr << "Error: '" << bin_name << "' does not yield a valid command name." << std::endl;
 			std::filesystem::remove_all(app_dir, ec);
-			return 1;
+			return exitWith(ExitCode::Integrity);
 		}
 
 		// temporary band-aid solution for creating a shim for the executable
@@ -412,7 +430,7 @@ int main(int argc, char* argv[]) {
 		if (argc < 3) {
 			std::cerr << "Error: Specify a package to uninstall." << std::endl;
 			std::cerr << "Usage: flan uninstall <package_name>" << std::endl;
-			return 1;
+			return exitWith(ExitCode::Usage);
 		}
 
 		std::string target_pkg = argv[2];
@@ -421,7 +439,7 @@ int main(int argc, char* argv[]) {
 		// в std::filesystem::remove_all.
 		if (!isSafeName(target_pkg)) {
 			std::cerr << "Error: '" << target_pkg << "' is not a valid package name." << std::endl;
-			return 1;
+			return exitWith(ExitCode::Usage);
 		}
 
 		std::cout << "Uninstalling package: " << target_pkg << std::endl;
@@ -431,13 +449,13 @@ int main(int argc, char* argv[]) {
 
 		if (!readJsonFile(registry_path, registry)) {
 			std::cerr << "Error: No installed packages found, or the registry is corrupted." << std::endl;
-			return 1;
+			return exitWith(ExitCode::Error);
 		}
 
 		// Проверка установленного пакета в реестре
 		if (!registry.is_object() || !registry.contains(target_pkg)) {
 			std::cerr << "Error: Package '" << target_pkg << "' is not installed." << std::endl;
-			return 1;
+			return exitWith(ExitCode::NotFound);
 		}
 
 		// Достаем имя прослойки из реестра, если запись вообще её содержит.
@@ -494,7 +512,7 @@ int main(int argc, char* argv[]) {
 		std::vector<PackageRecord> packages;
 
 		if (!loadDatabase(dbPath + "\\core.flan", header, packages)) {
-			return 1;
+			return exitWith(ExitCode::Error);
 		}
 
 		std::cout << "Database version: " << header.db_version << std::endl;
@@ -513,12 +531,12 @@ int main(int argc, char* argv[]) {
 
 		if (!readJsonFile(registry_path, registry)) {
 			std::cout << "No packages installed yet." << std::endl;
-			return 0;
+			return exitWith(ExitCode::Ok);
 		}
 
 		if (!registry.is_object() || registry.empty()) {
 			std::cout << "No packages installed yet." << std::endl;
-			return 0;
+			return exitWith(ExitCode::Ok);
 		}
 
 		std::cout << "Installed packages:" << std::endl;
@@ -544,8 +562,8 @@ int main(int argc, char* argv[]) {
 	else {
 		std::cerr << "Unknown command: " << command << std::endl;
 		printUsage();
-		return 1;
+		return exitWith(ExitCode::Usage);
 	}
 
-	return 0;
+	return exitWith(ExitCode::Ok);
 }

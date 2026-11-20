@@ -142,11 +142,14 @@
   <ItemGroup>
     <ClCompile Include="src\cli\main.cpp" />
     <ClCompile Include="src\core\index.cpp" />
+    <ClCompile Include="src\core\lock.cpp" />
     <ClCompile Include="src\crypto\sha256.cpp" />
     <ClCompile Include="src\io\fs.cpp" />
     <ClCompile Include="src\net\http.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\cli\exit_code.hpp" />
+    <ClInclude Include="src\core\lock.hpp" />
     <ClInclude Include="include\flan\format.hpp" />
     <ClInclude Include="include\flan\fs.hpp" />
     <ClInclude Include="include\flan\hex.hpp" />
