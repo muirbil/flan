@@ -7,6 +7,10 @@
 // Транзакция установки / обновления (DESIGN.md §7.6). Вызывается под блокировкой.
 ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName);
 
+// Удаление: прослойки пакета, квитанция, затем каталог apps\<name>\ целиком.
+// Вызывается под блокировкой.
+ExitCode uninstallPackage(const FlanPaths& paths, const std::string& requestedName);
+
 // state\pending-delete: каталоги, которые не удалось удалить, потому что программа
 // из них была запущена. Строка — "<name>\<dir>" или "<name>" (весь пакет) относительно apps\.
 void addPendingDelete(const FlanPaths& paths, const std::string& entry);

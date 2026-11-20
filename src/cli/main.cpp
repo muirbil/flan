@@ -19,6 +19,7 @@
 #include "core/install.hpp"
 #include "core/lock.hpp"
 #include "core/paths.hpp"
+#include "core/receipt.hpp"
 #include "core/sync.hpp"
 #include "flan/index.hpp"
 
@@ -227,85 +228,13 @@ int main(int argc, char* argv[]) {
 	}
 
 	else if (command == "uninstall") {
-
 		if (argc < 3) {
 			std::cerr << "Error: Specify a package to uninstall." << std::endl;
 			std::cerr << "Usage: flan uninstall <package_name>" << std::endl;
 			return exitWith(ExitCode::Usage);
 		}
 
-		std::string target_pkg = argv[2];
-
-		// Без этой проверки 'flan uninstall ..\..\..\Documents' уходило прямо
-		// в std::filesystem::remove_all.
-		if (!isSafeName(target_pkg)) {
-			std::cerr << "Error: '" << target_pkg << "' is not a valid package name." << std::endl;
-			return exitWith(ExitCode::Usage);
-		}
-
-		std::cout << "Uninstalling package: " << target_pkg << std::endl;
-
-		std::string registry_path = userDir + "\\installed.json";
-		json registry;
-
-		if (!readJsonFile(registry_path, registry)) {
-			std::cerr << "Error: No installed packages found, or the registry is corrupted." << std::endl;
-			return exitWith(ExitCode::Error);
-		}
-
-		// Проверка установленного пакета в реестре
-		if (!registry.is_object() || !registry.contains(target_pkg)) {
-			std::cerr << "Error: Package '" << target_pkg << "' is not installed." << std::endl;
-			return exitWith(ExitCode::NotFound);
-		}
-
-		// Достаем имя прослойки из реестра, если запись вообще её содержит.
-		std::string shim_name = target_pkg;
-		const json& record = registry[target_pkg];
-		if (record.is_object()) {
-			const auto it = record.find("shim");
-			if (it != record.end() && it->is_string()) {
-				shim_name = it->get<std::string>();
-			}
-		}
-
-		std::string app_dir = appsPath + "\\" + target_pkg;
-		std::error_code ec; // The error will be logged here
-
-		if (std::filesystem::remove_all(app_dir, ec) > 0) {
-			std::cout << "- Removed application directory: " << app_dir << std::endl;
-		}
-		else {
-			std::cerr << "Warning: Failed to remove application directory: " << app_dir << ". Error: " << ec.message() << std::endl;
-		}
-
-		// Удаляем shim прослойку. Имя пришло из файла на диске, поэтому проверяется так же,
-		// как и всё остальное, что попадает в путь.
-		if (isSafeName(shim_name)) {
-			std::string shim_path = binPath + "\\" + shim_name + ".bat";
-			if (std::filesystem::remove(shim_path, ec)) {
-				std::cout << "- Removed global shim (" << shim_name << ")" << std::endl;
-			}
-			else {
-				std::cerr << "Warning: Failed to remove shim: " << shim_path << ". Error: " << ec.message() << std::endl;
-			}
-		}
-		else {
-			std::cerr << "Warning: registry holds an unsafe shim name; skipping shim removal." << std::endl;
-		}
-
-		// Удаляем запись из JSON реестра
-		registry.erase(target_pkg);
-
-		std::ofstream reg_out(registry_path);
-		if (reg_out.is_open()) {
-			reg_out << registry.dump(4);
-			reg_out.close();
-			std::cout << "Success! Package '" << target_pkg << "' has been uninstalled." << std::endl;
-		}
-		else {
-			std::cerr << "Warning: Failed to update local registry after uninstalling." << std::endl;
-		}
+		return exitWith(uninstallPackage(paths, argv[2]));
 	}
 
 	// До этапа 5 list показывает доступные пакеты, а установленные — installed (DESIGN.md §7.7).
@@ -350,37 +279,26 @@ int main(int argc, char* argv[]) {
 	}
 
 	else if (command == "installed") {
-		std::string registry_path = userDir + "\\installed.json";
-		json registry;
+		std::vector<std::string> problems;
+		const std::vector<Receipt> receipts = listReceipts(paths, problems);
 
-		if (!readJsonFile(registry_path, registry)) {
-			std::cout << "No packages installed yet." << std::endl;
-			return exitWith(ExitCode::Ok);
+		for (const std::string& problem : problems) {
+			std::cerr << "Warning: " << problem << "." << std::endl;
 		}
 
-		if (!registry.is_object() || registry.empty()) {
+		if (receipts.empty()) {
 			std::cout << "No packages installed yet." << std::endl;
 			return exitWith(ExitCode::Ok);
 		}
 
 		std::cout << "Installed packages:" << std::endl;
-		std::cout << "───────────────────────────────────" << std::endl;
-
-		// Итерируемся по всем именам программ и их значениям используя nlohmann\json
-		for (auto& el : registry.items())
-		{
-			std::string pkg_version = "unknown";
-
-			if (el.value().is_object()) {
-				const auto it = el.value().find("version");
-				if (it != el.value().end() && it->is_string()) {
-					pkg_version = it->get<std::string>();
-				}
+		for (const Receipt& receipt : receipts) {
+			std::string commands;
+			for (const std::string& bin : receipt.bins) {
+				commands += (commands.empty() ? "" : ", ") + commandNameFromBin(bin);
 			}
-
-			std::cout << "- " << el.key() << " (v" << pkg_version << ")" << std::endl;
+			std::cout << "  " << receipt.name << "  " << receipt.version << "  [" << archName(receipt.arch) << "]  " << commands << std::endl;
 		}
-		std::cout << "───────────────────────────────────" << std::endl;
 	}
 
 	else {

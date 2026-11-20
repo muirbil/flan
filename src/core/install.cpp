@@ -262,6 +262,58 @@ void processPendingDeletes(const FlanPaths& paths) {
 	}
 }
 
+ExitCode uninstallPackage(const FlanPaths& paths, const std::string& requestedName) {
+	const std::string name = toLowerAscii(requestedName);
+	if (!isSafePackageName(name)) {
+		std::cerr << "Error: '" << requestedName << "' is not a valid package name." << std::endl;
+		return ExitCode::Usage;
+	}
+
+	Receipt receipt;
+	std::string error;
+	const ReceiptState state = readReceipt(paths, name, receipt, error);
+
+	const std::string appDir = paths.apps + "\\" + name;
+	const std::vector<std::string> commands = shimsOwnedBy(paths, name);
+
+	if (state == ReceiptState::Missing && !exists(appDir) && commands.empty()) {
+		std::cerr << "Error: package '" << name << "' is not installed." << std::endl;
+		return ExitCode::NotFound;
+	}
+
+	if (state == ReceiptState::Corrupt) {
+		std::cerr << "Warning: the receipt of " << name << " is corrupted (" << error << "); removing the package anyway." << std::endl;
+	}
+
+	// 1. Прослойки — по строке владельца, а не по квитанции: так uninstall работает
+	//    и с повреждённой квитанцией, а чужие прослойки не трогает никогда.
+	for (const std::string& command : commands) {
+		if (!deleteFile(shimPath(paths, command).c_str())) {
+			std::cerr << "Warning: cannot remove " << shimPath(paths, command) << "." << std::endl;
+		}
+	}
+
+	// 2. Квитанция: с этого момента пакет считается удалённым.
+	const std::string receiptFile = receiptPath(paths, name);
+	if (exists(receiptFile) && !deleteFile(receiptFile.c_str())) {
+		std::cerr << "Error: cannot remove " << receiptFile << " (code " << GetLastError() << ")." << std::endl;
+		return ExitCode::Error;
+	}
+
+	// 3. Каталог целиком: все версии и остатки. Занят — остаётся нетронутым до следующего запуска.
+	if (!removeTreeIfUnused(appDir)) {
+		addPendingDelete(paths, name);
+		std::cout << "Note: " << appDir << " is in use; it will be removed on the next flan run." << std::endl;
+	}
+
+	std::cout << "Uninstalled " << name;
+	if (state == ReceiptState::Valid) {
+		std::cout << " " << receipt.version;
+	}
+	std::cout << "." << std::endl;
+	return ExitCode::Ok;
+}
+
 ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName) {
 	// Имена пакетов в индексе — строчные (DESIGN.md §5.2): "RipGrep" — тот же ripgrep.
 	const std::string name = toLowerAscii(requestedName);

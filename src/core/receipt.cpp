@@ -152,6 +152,41 @@ bool writeReceipt(const FlanPaths& paths, const Receipt& receipt) {
 	return saveFileAtomically(receiptPath(paths, receipt.name), formatReceipt(receipt));
 }
 
+std::vector<Receipt> listReceipts(const FlanPaths& paths, std::vector<std::string>& problems) {
+	std::vector<Receipt> receipts;
+
+	WIN32_FIND_DATAA found = {};
+	const HANDLE search = FindFirstFileA((paths.apps + "\\*").c_str(), &found);
+	if (search == INVALID_HANDLE_VALUE) {
+		return receipts;
+	}
+
+	do {
+		const std::string name = found.cFileName;
+
+		// Каталоги не по правилам имён пакетов (".", "..", чужое) — не пакеты flan.
+		if (!(found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || !isSafePackageName(name)) {
+			continue;
+		}
+
+		Receipt receipt;
+		std::string error;
+		switch (readReceipt(paths, name, receipt, error)) {
+		case ReceiptState::Valid:
+			receipts.push_back(receipt);
+			break;
+		case ReceiptState::Corrupt:
+			problems.push_back(name + ": the receipt is corrupted (" + error + ")");
+			break;
+		case ReceiptState::Missing:
+			break;										// остаток удаления, ждёт pending-delete
+		}
+	} while (FindNextFileA(search, &found));
+
+	FindClose(search);
+	return receipts;
+}
+
 std::string currentUtcTimestamp() {
 	const std::time_t now = std::time(nullptr);
 	std::tm utc = {};

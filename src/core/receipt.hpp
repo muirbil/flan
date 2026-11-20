@@ -35,4 +35,8 @@ std::string receiptPath(const FlanPaths& paths, const std::string& name);
 ReceiptState readReceipt(const FlanPaths& paths, const std::string& name, Receipt& out, std::string& error);
 bool writeReceipt(const FlanPaths& paths, const Receipt& receipt);
 
+// Установленные пакеты = обход apps\*\receipt (DESIGN.md §7.5). Повреждённая квитанция
+// не мешает остальным: она попадает в problems, а не обрывает список.
+std::vector<Receipt> listReceipts(const FlanPaths& paths, std::vector<std::string>& problems);
+
 std::string currentUtcTimestamp();
