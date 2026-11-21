@@ -33,6 +33,9 @@
     <ClCompile Include="..\src\io\fs.cpp">
       <Filter>Under test</Filter>
     </ClCompile>
+    <ClCompile Include="..\tools\flan-build\pe.cpp">
+      <Filter>Under test</Filter>
+    </ClCompile>
     <ClCompile Include="..\tools\flan-build\writer.cpp">
       <Filter>Under test</Filter>
     </ClCompile>

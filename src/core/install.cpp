@@ -354,11 +354,6 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 		return ExitCode::NotFound;
 	}
 
-	if (entry.kind != KIND_ZIP) {
-		std::cerr << "Error: this version of flan cannot install '" << name << "' (unsupported package kind)." << std::endl;
-		return ExitCode::Error;
-	}
-
 	const std::string sha256 = toHex(entry.sha256, sizeof(entry.sha256));
 	const std::string label = name + " " + entry.version + " (" + archName(entry.arch) + ")";
 
@@ -420,13 +415,20 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 	const std::string appDir = paths.apps + "\\" + name;
 	const std::string staging = appDir + "\\.staging-" + pid;
 
-	if (!createDirectory(appDir.c_str()) || !createDirectory(staging.c_str()) || !extractArchive(archive, staging)) {
-		std::cerr << "Error: failed to extract " << name << "." << std::endl;
+	// Одиночный .exe (DESIGN.md §5.2) не распаковывается: проверенный файл переносится
+	// в staging под единственным именем из bins, дальше — те же шаги, что и для zip.
+	const bool exe = entry.kind == KIND_EXE;
+	const bool staged = createDirectory(appDir.c_str()) && createDirectory(staging.c_str()) &&
+		(exe ? MoveFileExA(archive.c_str(), (staging + "\\" + entry.bins[0]).c_str(), MOVEFILE_COPY_ALLOWED) != 0
+			 : extractArchive(archive, staging));
+
+	if (!staged) {
+		std::cerr << "Error: failed to " << (exe ? "place" : "extract") << " " << name << "." << std::endl;
 		deleteFile(archive.c_str());
 		removeTree(staging);
 		return ExitCode::Error;
 	}
-	deleteFile(archive.c_str());
+	deleteFile(archive.c_str());								// для exe его уже нет: перенесён
 
 	auto abort = [&](ExitCode code) {
 		removeTree(staging);

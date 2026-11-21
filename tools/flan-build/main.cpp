@@ -185,7 +185,7 @@ namespace {
 
 			CachedArchive archive;
 			if (!downloadToCache(target.url, cacheDir, archive, error) ||
-				!verifyArchiveContents(archive.path, target, manifest.bins, error)) {
+				!verifyPackageContents(archive.path, target, manifest.bins, error)) {
 				std::cerr << "Error: " << label << error << std::endl;
 				failed = true;
 				continue;
@@ -302,7 +302,7 @@ namespace {
 					}
 				}
 
-				if (!verifyArchiveContents(archive.path, target, manifest.bins, error)) {
+				if (!verifyPackageContents(archive.path, target, manifest.bins, error)) {
 					std::cerr << "Error: " << label << error << std::endl;
 					failed = true;
 					continue;
@@ -323,7 +323,7 @@ namespace {
 				entry.description = manifest.description;
 				entry.archiveSize = (uint32_t)archive.size;
 				entry.arch = target.arch;
-				entry.kind = KIND_ZIP;
+				entry.kind = target.kind;
 				fromHex(target.sha256, entry.sha256, sizeof(entry.sha256));
 				entries.push_back(entry);
 			}

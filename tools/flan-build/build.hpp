@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+#include "flan/format.hpp"
 #include "nlohmann/json.hpp"
 
 namespace fs = std::filesystem;
@@ -13,6 +14,7 @@ using ordered_json = nlohmann::ordered_json;
 struct ArchTarget {
 	std::string archKey;								// ключ в манифесте: "x64", "x86", "arm64"
 	uint8_t arch = 0;									// ARCH_*
+	uint8_t kind = KIND_ZIP;							// KIND_ZIP или KIND_EXE (DESIGN.md §5.2)
 	std::string url;									// после подстановки {version}
 	std::string extractDir;								// канонический путь; пусто — корень архива
 	std::string sha256;									// hex в нижнем регистре; пусто — ещё не посчитан
@@ -52,9 +54,14 @@ struct CachedArchive {
 bool downloadToCache(const std::string& url, const fs::path& cacheDir, CachedArchive& out, std::string& error);
 bool findInCache(const fs::path& cacheDir, const std::string& sha256, CachedArchive& out);
 
-// Проверяет, что extract_dir в архиве есть, а каждый bin — файл внутри него (DESIGN.md §8).
-bool verifyArchiveContents(const std::string& archivePath, const ArchTarget& target,
+// Проверяет скачанный файл (DESIGN.md §8): у zip — что extract_dir в архиве есть, а каждый bin —
+// файл внутри него; у exe — заголовок PE и его архитектуру.
+bool verifyPackageContents(const std::string& path, const ArchTarget& target,
 	const std::vector<std::string>& bins, std::string& error);
+
+// Заголовок PE одиночного .exe: MZ, PE\0\0, исполняемый образ, не DLL, Machine == arch.
+// data — начало файла; size — сколько байт прочитано.
+bool checkPeHeader(const uint8_t* data, size_t size, uint8_t arch, std::string& error);
 
 // Запись индекса, готовая к сериализации.
 struct BuildEntry {

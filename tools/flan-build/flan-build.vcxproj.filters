@@ -23,6 +23,9 @@
     <ClCompile Include="manifest.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="pe.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="writer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

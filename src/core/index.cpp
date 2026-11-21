@@ -228,6 +228,14 @@ bool IndexView::decode(uint32_t i, const IndexEntry& entry, IndexRecord& out, st
 		return false;
 	}
 
+	// Одиночный .exe (DESIGN.md §5.2): файл ложится в каталог версии под единственным
+	// именем из bins, поэтому подкаталогов в нём быть не может, а extract_dir не к чему применить.
+	if (entry.kind == KIND_EXE &&
+		(out.bins.size() != 1 || out.bins[0].find('\\') != std::string::npos || !out.extractDir.empty())) {
+		error = where + "an exe package must have exactly one bin without folders and no extract_dir";
+		return false;
+	}
+
 	out.archiveSize = entry.archive_size;
 	out.arch = entry.arch;
 	out.kind = entry.kind;

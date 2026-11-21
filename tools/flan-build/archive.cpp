@@ -7,6 +7,7 @@
 #include "flan/http.hpp"
 #include "flan/sha256.hpp"
 #include "flan/validate.hpp"
+#include <fstream>
 #include <set>
 
 bool downloadToCache(const std::string& url, const fs::path& cacheDir, CachedArchive& out, std::string& error) {
@@ -68,8 +69,29 @@ bool findInCache(const fs::path& cacheDir, const std::string& sha256, CachedArch
 	return !ec;
 }
 
-bool verifyArchiveContents(const std::string& archivePath, const ArchTarget& target,
+namespace {
+
+	// Одиночный .exe: проверяется заголовок PE. Заголовок лежит в начале файла,
+	// поэтому хватает первых 64 КБ; e_lfanew дальше этого — заведомо не обычный .exe.
+	bool verifyExecutable(const std::string& path, uint8_t arch, std::string& error) {
+		std::ifstream in(path, std::ios::binary);
+		if (!in) {
+			error = "cannot open the downloaded file";
+			return false;
+		}
+
+		std::vector<uint8_t> head(64 * 1024);
+		in.read(reinterpret_cast<char*>(head.data()), (std::streamsize)head.size());
+		return checkPeHeader(head.data(), (size_t)in.gcount(), arch, error);
+	}
+}
+
+bool verifyPackageContents(const std::string& archivePath, const ArchTarget& target,
 	const std::vector<std::string>& bins, std::string& error) {
+
+	if (target.kind == KIND_EXE) {
+		return verifyExecutable(archivePath, target.arch, error);
+	}
 
 	std::vector<std::string> entries;
 	if (!listArchive(archivePath, entries)) {

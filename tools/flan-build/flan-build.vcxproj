@@ -146,6 +146,7 @@
     <ClCompile Include="archive.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="manifest.cpp" />
+    <ClCompile Include="pe.cpp" />
     <ClCompile Include="writer.cpp" />
     <!-- Общий с клиентом код: генератор отвергает всё, что отверг бы клиент (DESIGN.md §4) -->
     <ClCompile Include="..\..\src\core\index.cpp" />

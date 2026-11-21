@@ -121,6 +121,26 @@ namespace {
 		expectRejected(label, rawIndex(pkgs));
 	}
 
+	// Минимальный заголовок PE: MZ, e_lfanew, "PE\0\0", Machine и Characteristics.
+	std::vector<uint8_t> fakePe(uint16_t machine, uint16_t characteristics, uint32_t peOffset = 0x80) {
+		std::vector<uint8_t> bytes(512, 0);
+		bytes[0] = 'M';
+		bytes[1] = 'Z';
+		std::memcpy(&bytes[0x3C], &peOffset, sizeof(peOffset));
+		if ((uint64_t)peOffset + 24 <= bytes.size()) {
+			std::memcpy(&bytes[peOffset], "PE\0\0", 4);
+			std::memcpy(&bytes[peOffset + 4], &machine, sizeof(machine));
+			std::memcpy(&bytes[peOffset + 22], &characteristics, sizeof(characteristics));
+		}
+		return bytes;
+	}
+
+	void expectPe(const char* label, const std::vector<uint8_t>& bytes, uint8_t arch, bool ok) {
+		std::string error;
+		const bool accepted = checkPeHeader(bytes.data(), bytes.size(), arch, error);
+		check(accepted == ok, label, accepted ? "accepted" : error);
+	}
+
 	BuildEntry buildEntry(const char* name, uint8_t arch, const char* url, uint32_t size) {
 		BuildEntry e;
 		e.name = name;
@@ -244,6 +264,45 @@ void runIndexTests() {
 		std::string err;
 		check(v.open(rawIndex(p), err) && v.validateAll(err), "bins 8 entries accepted", err);
 	}
+
+	// kind = exe (DESIGN.md §5.2): ровно один bin без подкаталогов, без extract_dir.
+	beginSuite("index: kind exe");
+	{
+		auto p = goodPkgs();
+		p.push_back({ "zz", "1.8.2", "https://example.com/jq-windows-amd64.exe", "", "jq.exe", "JSON", 1035264, ARCH_X64, KIND_EXE });
+		IndexView v;
+		std::string err;
+		IndexRecord r;
+		check(v.open(rawIndex(p), err) && v.validateAll(err) && v.find("zz", ARCH_X64, r, err) == FindResult::Found &&
+			r.kind == KIND_EXE && r.bins.size() == 1 && r.bins[0] == "jq.exe" && r.extractDir.empty(), "exe entry accepted", err);
+	}
+	badPkg("exe with two bins", [](Pkg& p) { p.kind = KIND_EXE; p.extractDir = ""; p.bins = "a.exe;b.exe"; });
+	badPkg("exe with a folder in bin", [](Pkg& p) { p.kind = KIND_EXE; p.extractDir = ""; p.bins = "bin\\jq.exe"; });
+	badPkg("exe with extract_dir", [](Pkg& p) { p.kind = KIND_EXE; p.bins = "rg.exe"; });
+
+	beginSuite("pe header");
+	expectPe("x64 executable as x64", fakePe(0x8664, 0x0022), ARCH_X64, true);
+	expectPe("x86 executable as x86", fakePe(0x014C, 0x0102), ARCH_X86, true);
+	expectPe("arm64 executable as arm64", fakePe(0xAA64, 0x0022), ARCH_ARM64, true);
+	expectPe("x64 executable listed as x86", fakePe(0x8664, 0x0022), ARCH_X86, false);
+	expectPe("x86 executable listed as x64", fakePe(0x014C, 0x0102), ARCH_X64, false);
+	expectPe("DLL", fakePe(0x8664, 0x2022), ARCH_X64, false);
+	expectPe("not an executable image", fakePe(0x8664, 0x0020), ARCH_X64, false);
+	expectPe("e_lfanew out of bounds", fakePe(0x8664, 0x0022, 0xFFFFFFF0u), ARCH_X64, false);
+	expectPe("e_lfanew too close to the end", fakePe(0x8664, 0x0022, 512 - 23), ARCH_X64, false);
+	{
+		auto bytes = fakePe(0x8664, 0x0022);
+		bytes[0x80] = 'X';
+		expectPe("no PE signature", bytes, ARCH_X64, false);
+	}
+	{
+		auto bytes = fakePe(0x8664, 0x0022);
+		bytes[0] = 'P';
+		bytes[1] = 'K';
+		expectPe("zip instead of exe", bytes, ARCH_X64, false);
+	}
+	expectPe("too short", std::vector<uint8_t>(10, 'M'), ARCH_X64, false);
+	expectPe("empty", std::vector<uint8_t>(), ARCH_X64, false);
 
 	beginSuite("index: find re-validates");
 	{

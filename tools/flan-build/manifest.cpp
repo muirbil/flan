@@ -218,10 +218,23 @@ bool loadManifest(const fs::path& file, bool requireHash, Manifest& out, std::ve
 				}
 			}
 
+			std::string kind;
+			if (readOptionalString(build, "kind", kind, present, label, errors) && present) {
+				if (kind == "exe") {
+					target.kind = KIND_EXE;
+				}
+				else if (kind != "zip") {
+					errors.push_back(label + "'kind' must be \"zip\" or \"exe\"");
+				}
+			}
+
 			std::string extractDir;
 			if (readOptionalString(build, "extract_dir", extractDir, present, label, errors) && present) {
 				const std::string expanded = expandVersion(extractDir, out.version);
-				if (expanded.find_first_of("{}") != std::string::npos) {
+				if (target.kind == KIND_EXE) {
+					errors.push_back(label + "'extract_dir' is not allowed for kind \"exe\"");
+				}
+				else if (expanded.find_first_of("{}") != std::string::npos) {
 					errors.push_back(label + "'extract_dir' has an unknown placeholder (only {version} is supported)");
 				}
 				else if (!expanded.empty() && !normalizeRelativePath(expanded, target.extractDir)) {
@@ -229,15 +242,10 @@ bool loadManifest(const fs::path& file, bool requireHash, Manifest& out, std::ve
 				}
 			}
 
-			// kind = exe ещё не определён (DESIGN.md §5.2) и до этапа 4 отвергается.
-			std::string kind;
-			if (readOptionalString(build, "kind", kind, present, label, errors) && present) {
-				if (kind == "exe") {
-					errors.push_back(label + "kind \"exe\" is not supported before stage 4 (DESIGN.md 5.2)");
-				}
-				else if (kind != "zip") {
-					errors.push_back(label + "'kind' must be \"zip\"");
-				}
+			// kind = exe (DESIGN.md §5.2): скачанный файл ложится под единственным именем из bin.
+			if (target.kind == KIND_EXE &&
+				(out.bins.size() != 1 || out.bins[0].find('\\') != std::string::npos)) {
+				errors.push_back(label + "kind \"exe\" needs exactly one 'bin' that is a plain file name");
 			}
 
 			// Пока hash не отработал, на месте хэша может быть что угодно, например заглушка.
