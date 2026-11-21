@@ -12,6 +12,9 @@
     <ClCompile Include="main.cpp">
       <Filter>Tests</Filter>
     </ClCompile>
+    <ClCompile Include="test_crypto.cpp">
+      <Filter>Tests</Filter>
+    </ClCompile>
     <ClCompile Include="test_index.cpp">
       <Filter>Tests</Filter>
     </ClCompile>
@@ -28,6 +31,9 @@
       <Filter>Under test</Filter>
     </ClCompile>
     <ClCompile Include="..\src\core\shim.cpp">
+      <Filter>Under test</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\crypto\sha256.cpp">
       <Filter>Under test</Filter>
     </ClCompile>
     <ClCompile Include="..\src\io\fs.cpp">

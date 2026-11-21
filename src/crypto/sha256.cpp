@@ -3,67 +3,115 @@
 #include <windows.h>
 #include <bcrypt.h>
 #include "flan/sha256.hpp"
+#include "flan/hex.hpp"
 #include <fstream>
-#include <sstream>
-#include <iomanip>
 
 #pragma comment(lib, "bcrypt.lib")
 
 namespace crypto {
 
+    Sha256::Sha256() {
+        open();
+    }
+
+    Sha256::~Sha256() {
+        close();
+    }
+
+    void Sha256::open() {
+        ok_ = false;
+
+        BCRYPT_ALG_HANDLE algorithm = NULL;
+        if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, NULL, 0) < 0) {
+            return;
+        }
+        algorithm_ = algorithm;
+
+        DWORD objectLength = 0;
+        DWORD written = 0;
+        if (BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, (PBYTE)&objectLength, sizeof(objectLength), &written, 0) < 0) {
+            return;
+        }
+        object_.assign(objectLength, 0);
+
+        BCRYPT_HASH_HANDLE hash = NULL;
+        if (BCryptCreateHash(algorithm, &hash, object_.data(), objectLength, NULL, 0, 0) < 0) {
+            return;
+        }
+        hash_ = hash;
+        ok_ = true;
+    }
+
+    void Sha256::close() {
+        // Хэш-объект ссылается на провайдер, поэтому уничтожается первым:
+        // обратный порядок — обращение к уже закрытому провайдеру.
+        if (hash_) {
+            BCryptDestroyHash((BCRYPT_HASH_HANDLE)hash_);
+            hash_ = nullptr;
+        }
+        if (algorithm_) {
+            BCryptCloseAlgorithmProvider((BCRYPT_ALG_HANDLE)algorithm_, 0);
+            algorithm_ = nullptr;
+        }
+        ok_ = false;
+    }
+
+    bool Sha256::ok() const {
+        return ok_;
+    }
+
+    void Sha256::update(const void* data, size_t size) {
+        // BCryptHashData принимает ULONG: огромные куски подаются частями.
+        const uint8_t* bytes = static_cast<const uint8_t*>(data);
+        while (ok_ && size > 0) {
+            const ULONG chunk = size > 0x40000000 ? 0x40000000 : (ULONG)size;
+            if (BCryptHashData((BCRYPT_HASH_HANDLE)hash_, (PUCHAR)bytes, chunk, 0) < 0) {
+                ok_ = false;
+            }
+            bytes += chunk;
+            size -= chunk;
+        }
+    }
+
+    void Sha256::reset() {
+        close();
+        open();
+    }
+
+    std::string Sha256::finishHex() {
+        if (!ok_) {
+            return std::string();
+        }
+
+        uint8_t digest[32];
+        if (BCryptFinishHash((BCRYPT_HASH_HANDLE)hash_, digest, sizeof(digest), 0) < 0) {
+            ok_ = false;
+            return std::string();
+        }
+
+        // После BCryptFinishHash объект хэша больше не пригоден.
+        ok_ = false;
+        return toHex(digest, sizeof(digest));
+    }
+
     std::string calculateSHA256(const std::string& filePath) {
+        std::ifstream file(filePath, std::ios::binary);
+        if (!file) {
+            return std::string();
+        }
 
-        BCRYPT_ALG_HANDLE hAlg = NULL;
-        BCRYPT_HASH_HANDLE hHash = NULL;
-        DWORD cbData = 0, cbHash = 0, cbHashObject = 0;
-        PBYTE pbHashObject = NULL;
-        PBYTE pbHash = NULL;
-        std::string calculated_hash = "";
-
-        // Инициализация провайдера SHA256
-        if (BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA256_ALGORITHM, NULL, 0) >= 0) {
-
-            // Узнаем размеры буферов для хэша и объекта хэша
-            BCryptGetProperty(hAlg, BCRYPT_OBJECT_LENGTH, (PBYTE)&cbHashObject, sizeof(DWORD), &cbData, 0);
-            BCryptGetProperty(hAlg, BCRYPT_HASH_LENGTH, (PBYTE)&cbHash, sizeof(DWORD), &cbData, 0);
-
-            pbHashObject = new BYTE[cbHashObject];
-            pbHash = new BYTE[cbHash];
-
-            if (BCryptCreateHash(hAlg, &hHash, pbHashObject, cbHashObject, NULL, 0, 0) >= 0) {
-
-                // Открываем архив в бинарном режиме
-                std::ifstream file(filePath, std::ios::binary);
-                if (file) {
-                    char buffer[8192]; // Читаем файл чанками по 8 КБ
-                    while (file.read(buffer, sizeof(buffer))) {
-                        BCryptHashData(hHash, (PBYTE)buffer, (ULONG)file.gcount(), 0);
-                    }
-
-                    // Добиваем последний (неполный) кусок
-                    BCryptHashData(hHash, (PBYTE)buffer, (ULONG)file.gcount(), 0);
-
-                    if (BCryptFinishHash(hHash, pbHash, cbHash, 0) >= 0) {
-
-                        // Преобразуем байты в hex-строку
-                        std::ostringstream oss;
-                        for (DWORD i = 0; i < cbHash; ++i) {
-                            oss << std::hex << std::setw(2) << std::setfill('0') << (int)pbHash[i];
-                        }
-                        calculated_hash = oss.str();
-                    }
-                }
+        Sha256 hash;
+        std::vector<char> buffer(64 * 1024);
+        while (file) {
+            file.read(buffer.data(), (std::streamsize)buffer.size());
+            if (file.gcount() > 0) {
+                hash.update(buffer.data(), (size_t)file.gcount());
             }
         }
 
-        // Очистка ресурсов. Хэш-объект ссылается на провайдер, поэтому уничтожается первым:
-        // обратный порядок — обращение к уже закрытому провайдеру.
-        if (hHash) BCryptDestroyHash(hHash);
-        if (hAlg) BCryptCloseAlgorithmProvider(hAlg, 0);
-        if (pbHashObject) delete[] pbHashObject;
-        if (pbHash) delete[] pbHash;
-
-        return calculated_hash;
+        if (file.bad()) {
+            return std::string();
+        }
+        return hash.finishHex();
     }
-
 }
