@@ -133,6 +133,24 @@ bool isRegularFile(const std::string& path) {
     return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
 }
 
+bool fileSize(const std::string& path, uint64_t& size) {
+    WIN32_FILE_ATTRIBUTE_DATA data = {};
+    if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &data) || (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+        return false;
+    }
+    size = ((uint64_t)data.nFileSizeHigh << 32) | data.nFileSizeLow;
+    return true;
+}
+
+bool freeDiskSpace(const std::string& directory, uint64_t& bytes) {
+    ULARGE_INTEGER available = {};
+    if (!GetDiskFreeSpaceExA(directory.c_str(), &available, NULL, NULL)) {
+        return false;
+    }
+    bytes = available.QuadPart;
+    return true;
+}
+
 namespace {
 
     // Путь к tar.exe задаётся явно. Через system() строка уходила в cmd.exe, который

@@ -13,6 +13,7 @@
 #include "flan/sha256.hpp"
 #include "flan/validate.hpp"
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <vector>
 
@@ -262,6 +263,148 @@ void processPendingDeletes(const FlanPaths& paths) {
 	}
 }
 
+namespace {
+
+	// Запас свободного места сверх того, что осталось скачать (DESIGN.md §7.2, «Лимиты»).
+	constexpr uint64_t FREE_SPACE_MARGIN = 16ull * 1024 * 1024;
+
+	std::string formatSize(uint64_t bytes) {
+		if (bytes < 1024 * 1024) {
+			return std::to_string((bytes + 1023) / 1024) + " KB";
+		}
+		const uint64_t tenths = (bytes * 10 + 512 * 1024) / (1024 * 1024);
+		return std::to_string(tenths / 10) + "." + std::to_string(tenths % 10) + " MB";
+	}
+
+	// Первые size байт уже скачанной части — в хэш, один раз перед продолжением (§7.2).
+	bool hashExistingPart(const std::string& path, uint64_t size, crypto::Sha256& hasher) {
+		std::ifstream in(path, std::ios::binary);
+		std::vector<char> buffer(64 * 1024);
+		uint64_t left = size;
+		while (in && left > 0) {
+			const std::streamsize want = (std::streamsize)(left < buffer.size() ? left : buffer.size());
+			in.read(buffer.data(), want);
+			const std::streamsize got = in.gcount();
+			if (got <= 0) {
+				break;
+			}
+			hasher.update(buffer.data(), (size_t)got);
+			left -= (uint64_t)got;
+		}
+		return left == 0 && hasher.ok();
+	}
+
+	// Шаг 3 транзакции (DESIGN.md §7.6, §7.2). Готовый и целый cache\<sha256> — без сети.
+	// Иначе загрузка в cache\<sha256>.part: с Range от уже скачанного, с хэшем на лету,
+	// не больше archive_size. Если после докачки хэш не сошёлся — один раз заново целиком.
+	ExitCode fetchArchive(const FlanPaths& paths, const IndexRecord& entry, const std::string& sha256,
+		const std::string& label, std::string& archive) {
+
+		archive = paths.cache + "\\" + sha256;
+		const std::string part = archive + ".part";
+
+		uint64_t size = 0;
+		if (fileSize(archive, size)) {
+			if (size == entry.archiveSize && crypto::calculateSHA256(archive) == sha256) {
+				std::cout << "Using the cached archive of " << label << "." << std::endl;
+				return ExitCode::Ok;
+			}
+			deleteFile(archive.c_str());
+		}
+
+		for (int pass = 0; pass < 2; pass++) {
+			uint64_t have = 0;
+			if (fileSize(part, have) && have > entry.archiveSize) {
+				deleteFile(part.c_str());
+				have = 0;
+			}
+
+			crypto::Sha256 hasher;
+			if (have > 0 && !hashExistingPart(part, have, hasher)) {
+				deleteFile(part.c_str());
+				hasher.reset();
+				have = 0;
+			}
+
+			uint64_t freeBytes = 0;
+			const uint64_t needed = entry.archiveSize - have + FREE_SPACE_MARGIN;
+			if (freeDiskSpace(paths.cache, freeBytes) && freeBytes < needed) {
+				std::cerr << "Error: not enough disk space for " << label << ": " << formatSize(needed)
+					<< " needed, " << formatSize(freeBytes) << " free." << std::endl;
+				return ExitCode::Error;
+			}
+
+			const bool resuming = have > 0;
+			bool resumedAnywhere = resuming;					// с прошлого .part или после обрыва в этом запуске
+			if (have == entry.archiveSize) {
+				// Процесс убили после загрузки, до переименования: запрос не нужен, только хэш.
+				std::cout << "The download of " << label << " is already complete; verifying." << std::endl;
+			}
+			else {
+				if (resuming) {
+					std::cout << "Resuming " << label << ": " << formatSize(entry.archiveSize - have) << " of "
+						<< formatSize(entry.archiveSize) << " left, from " << entry.url << std::endl;
+				}
+				else {
+					std::cout << "Downloading " << label << ": " << formatSize(entry.archiveSize) << " from " << entry.url << std::endl;
+				}
+
+				HttpRequest request;
+				request.url = entry.url;
+				request.destination = part;
+				request.resumeFrom = have;
+				request.expectedSize = entry.archiveSize;
+				request.maxSize = entry.archiveSize;
+				request.hasher = &hasher;
+
+				const HttpResult result = httpGet(request);
+				switch (result.outcome) {
+				case HttpOutcome::Ok:
+					resumedAnywhere = resumedAnywhere || result.resumed;
+					if (resuming || result.resumed) {
+						std::cout << "  received " << formatSize(result.bodyBytes) << " of " << formatSize(entry.archiveSize)
+							<< (result.resumed ? " (resumed)" : " (the server restarted the download)") << std::endl;
+					}
+					break;
+				case HttpOutcome::SizeMismatch:
+					deleteFile(part.c_str());
+					std::cerr << "Error: " << label << ": " << result.error << "." << std::endl;
+					return ExitCode::Integrity;
+				case HttpOutcome::LocalError:
+					std::cerr << "Error: " << result.error << "." << std::endl;
+					return ExitCode::Error;
+				default:
+					// .part остаётся: следующий install продолжит с него.
+					std::cerr << "Error: failed to download " << label << ": " << result.error << "." << std::endl;
+					return ExitCode::Network;
+				}
+			}
+
+			const std::string actual = hasher.finishHex();
+			if (actual == sha256) {
+				if (!MoveFileExA(part.c_str(), archive.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+					std::cerr << "Error: cannot move the archive into " << archive << " (code " << GetLastError() << ")." << std::endl;
+					return ExitCode::Error;
+				}
+				return ExitCode::Ok;
+			}
+
+			deleteFile(part.c_str());
+			if (resumedAnywhere && pass == 0) {
+				std::cerr << "Warning: SHA-256 mismatch after resuming; downloading " << label << " again from scratch." << std::endl;
+				continue;
+			}
+
+			std::cerr << "Error: SHA-256 mismatch for " << label << ". The file may be corrupted or tampered with." << std::endl;
+			std::cerr << "  expected: " << sha256 << std::endl;
+			std::cerr << "  actual:   " << actual << std::endl;
+			return ExitCode::Integrity;
+		}
+
+		return ExitCode::Integrity;
+	}
+}
+
 ExitCode uninstallPackage(const FlanPaths& paths, const std::string& requestedName) {
 	const std::string name = toLowerAscii(requestedName);
 	if (!isSafePackageName(name)) {
@@ -390,45 +533,31 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 
 	removeStaleLeftovers(paths, name);
 
-	// Шаг 3: загрузка и SHA-256. На этапе 1 без кэша: архив во tmp\, после установки удаляется.
+	// Шаг 3: архив в cache\<sha256> — из кэша или загрузкой с докачкой и хэшем на лету.
+	std::string archive;
+	const ExitCode fetched = fetchArchive(paths, entry, sha256, label, archive);
+	if (fetched != ExitCode::Ok) {
+		return fetched;
+	}
+
+	// Шаг 4: распаковка в staging. Сбой до шага 8 удаляет только staging: прежняя версия
+	// и её прослойки продолжают работать, а проверенный архив остаётся в кэше для повтора.
 	const std::string pid = std::to_string(GetCurrentProcessId());
-	const std::string archive = paths.tmp + "\\" + name + "-" + pid + ".zip";
-
-	std::cout << "Downloading " << label << " from " << entry.url << std::endl;
-	if (!downloadFile(entry.url, archive)) {
-		std::cerr << "Error: failed to download " << name << "." << std::endl;
-		deleteFile(archive.c_str());
-		return ExitCode::Network;
-	}
-
-	const std::string actual = crypto::calculateSHA256(archive);
-	if (actual != sha256) {
-		std::cerr << "Error: SHA-256 mismatch for " << name << ". The file may be corrupted or tampered with." << std::endl;
-		std::cerr << "  expected: " << sha256 << std::endl;
-		std::cerr << "  actual:   " << actual << std::endl;
-		deleteFile(archive.c_str());
-		return ExitCode::Integrity;
-	}
-
-	// Шаг 4: распаковка в staging. Сбой до шага 8 удаляет только staging:
-	// прежняя версия и её прослойки продолжают работать.
 	const std::string appDir = paths.apps + "\\" + name;
 	const std::string staging = appDir + "\\.staging-" + pid;
 
-	// Одиночный .exe (DESIGN.md §5.2) не распаковывается: проверенный файл переносится
+	// Одиночный .exe (DESIGN.md §5.2) не распаковывается: проверенный файл копируется
 	// в staging под единственным именем из bins, дальше — те же шаги, что и для zip.
 	const bool exe = entry.kind == KIND_EXE;
 	const bool staged = createDirectory(appDir.c_str()) && createDirectory(staging.c_str()) &&
-		(exe ? MoveFileExA(archive.c_str(), (staging + "\\" + entry.bins[0]).c_str(), MOVEFILE_COPY_ALLOWED) != 0
+		(exe ? CopyFileA(archive.c_str(), (staging + "\\" + entry.bins[0]).c_str(), TRUE) != 0
 			 : extractArchive(archive, staging));
 
 	if (!staged) {
 		std::cerr << "Error: failed to " << (exe ? "place" : "extract") << " " << name << "." << std::endl;
-		deleteFile(archive.c_str());
 		removeTree(staging);
 		return ExitCode::Error;
 	}
-	deleteFile(archive.c_str());								// для exe его уже нет: перенесён
 
 	auto abort = [&](ExitCode code) {
 		removeTree(staging);
@@ -503,6 +632,9 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 		std::cerr << "Error: cannot write " << receiptPath(paths, name) << "." << std::endl;
 		return ExitCode::Error;
 	}
+
+	// Политика кэша (DESIGN.md §7.6): после фиксации архив не нужен — распакованное в apps\.
+	deleteFile(archive.c_str());
 
 	// Шаг 9: прежняя версия. Занята запущенной программой — удалится при следующем запуске flan.
 	if (upgrading && old.dir != dir) {

@@ -17,6 +17,12 @@ bool saveFileAtomically(const std::string& path, const std::string& data);
 
 bool isDirectory(const std::string& path);
 bool isRegularFile(const std::string& path);
+
+// Размер файла; false — файла нет или он недоступен.
+bool fileSize(const std::string& path, uint64_t& size);
+
+// Сколько байт доступно текущему пользователю на томе, где лежит каталог.
+bool freeDiskSpace(const std::string& directory, uint64_t& bytes);
 bool extractArchive(const std::string& archivePath, const std::string& destinationDir);
 
 // Имена внутри архива — через тот же System32\tar.exe, которым клиент распаковывает.

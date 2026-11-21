@@ -131,8 +131,8 @@ int main(int argc, char* argv[]) {
 
 	const FlanPaths paths = FlanPaths::under(userDir);
 
-	// Раскладка DESIGN.md §7.1. cache\ появится на этапе 2 вместе с кэшем по sha256.
-	if (!createDirectory(paths.apps.c_str()) || !createDirectory(paths.bin.c_str()) ||
+	// Раскладка DESIGN.md §7.1.
+	if (!createDirectory(paths.apps.c_str()) || !createDirectory(paths.bin.c_str()) || !createDirectory(paths.cache.c_str()) ||
 		!createDirectory(paths.state.c_str()) || !createDirectory(paths.tmp.c_str())) {
 		std::cerr << "Fatal: could not create the flan directories under " << userDir << std::endl;
 		return exitWith(ExitCode::Error);
