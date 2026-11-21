@@ -45,6 +45,9 @@
     <ClCompile Include="src\net\http.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\net\http_policy.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\core\exit_code.hpp">
@@ -78,6 +81,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\flan\http.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\flan\http_policy.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\flan\index.hpp">

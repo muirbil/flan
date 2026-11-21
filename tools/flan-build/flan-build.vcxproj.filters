@@ -41,6 +41,9 @@
     <ClCompile Include="..\..\src\net\http.cpp">
       <Filter>Shared</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\net\http_policy.cpp">
+      <Filter>Shared</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="build.hpp">

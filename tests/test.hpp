@@ -15,3 +15,4 @@ void runValidateTests();
 void runIndexTests();
 void runReceiptTests();
 void runCryptoTests();
+void runHttpTests();
