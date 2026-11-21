@@ -5,6 +5,15 @@
 #include "build.hpp"
 #include "flan/format.hpp"
 #include "flan/index.hpp"
+
+// Те же настройки, что в miniz_full.c.
+#define MINIZ_NO_STDIO
+#define MINIZ_NO_TIME
+#define MINIZ_NO_ARCHIVE_APIS
+#define MINIZ_NO_ARCHIVE_WRITING_APIS
+#define MINIZ_NO_ZLIB_APIS
+#define MINIZ_NO_ZLIB_COMPATIBLE_NAMES
+#include "miniz.h"
 #include <algorithm>
 #include <cstring>
 #include <fstream>
@@ -77,7 +86,7 @@ bool buildIndexFile(std::vector<BuildEntry> entries, uint64_t generatedAt, std::
 	}
 
 	const uint64_t bodySize = sizeof(IndexHeader) + (uint64_t)table.size() + pool.size();
-	if (poolTooLarge || bodySize > MAX_INDEX_RAW_SIZE || sizeof(Envelope) + bodySize > MAX_INDEX_FILE_SIZE) {
+	if (poolTooLarge || bodySize > MAX_INDEX_RAW_SIZE) {
 		error = "index is larger than the format allows";
 		return false;
 	}
@@ -91,30 +100,54 @@ bool buildIndexFile(std::vector<BuildEntry> entries, uint64_t generatedAt, std::
 	header.strings_offset = (uint32_t)(sizeof(IndexHeader) + table.size());
 	header.strings_size = (uint32_t)pool.size();
 
-	// До этапа 4 индекс не подписан (key_id = 0, подпись — нули), до этапа 2 — не сжат.
+	std::vector<uint8_t> body(sizeof(header));
+	std::memcpy(body.data(), &header, sizeof(header));
+	body.insert(body.end(), table.begin(), table.end());
+	body.insert(body.end(), pool.begin(), pool.end());
+
+	// Тело сжимается raw deflate (DESIGN.md §6.1): на медленном канале индекс — самое
+	// частое, что качается. До этапа 4 индекс не подписан (key_id = 0, подпись — нули).
+	std::vector<uint8_t> payload;
+	if (!deflateRaw(body, payload)) {
+		error = "cannot compress the index body";
+		return false;
+	}
+
+	if (sizeof(Envelope) + (uint64_t)payload.size() > MAX_INDEX_FILE_SIZE) {
+		error = "index is larger than the format allows";
+		return false;
+	}
+
 	Envelope envelope = {};
 	std::memcpy(envelope.magic, ENVELOPE_MAGIC, sizeof(envelope.magic));
 	envelope.envelope_version = ENVELOPE_VERSION;
 	envelope.key_id = KEY_ID_UNSIGNED;
-	envelope.compression = COMPRESSION_NONE;
-	envelope.payload_size = (uint32_t)bodySize;
-	envelope.raw_size = (uint32_t)bodySize;
+	envelope.compression = COMPRESSION_DEFLATE;
+	envelope.payload_size = (uint32_t)payload.size();
+	envelope.raw_size = (uint32_t)body.size();
 	envelope.reserved = 0;
 
-	file.resize(sizeof(Envelope) + (size_t)bodySize);
-	uint8_t* cursor = file.data();
-	std::memcpy(cursor, &envelope, sizeof(envelope));
-	cursor += sizeof(envelope);
-	std::memcpy(cursor, &header, sizeof(header));
-	cursor += sizeof(header);
-	if (!table.empty()) {
-		std::memcpy(cursor, table.data(), table.size());
-		cursor += table.size();
-	}
-	if (!pool.empty()) {
-		std::memcpy(cursor, pool.data(), pool.size());
+	file.resize(sizeof(Envelope));
+	std::memcpy(file.data(), &envelope, sizeof(envelope));
+	file.insert(file.end(), payload.begin(), payload.end());
+	return true;
+}
+
+bool deflateRaw(const std::vector<uint8_t>& data, std::vector<uint8_t>& out) {
+	out.clear();
+
+	// Уровень 10 (наибольшее сжатие miniz), окно -15 — raw deflate без заголовка zlib,
+	// стратегия по умолчанию. Индекс собирается редко, поэтому время сжатия неважно.
+	const int flags = (int)tdefl_create_comp_flags_from_zip_params(10, -15, 0);
+
+	size_t size = 0;
+	void* compressed = tdefl_compress_mem_to_heap(data.data(), data.size(), &size, flags);
+	if (compressed == nullptr) {
+		return false;
 	}
 
+	out.assign(static_cast<const uint8_t*>(compressed), static_cast<const uint8_t*>(compressed) + size);
+	mz_free(compressed);
 	return true;
 }
 

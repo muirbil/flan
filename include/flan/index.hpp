@@ -36,8 +36,8 @@ enum class FindResult {
 // Индекс в памяти. Владеет буфером файла, поэтому записи из него не висят на чужой памяти.
 class IndexView {
 public:
-	// Шаги приёма DESIGN.md §6.1, кроме подписи, распаковки и защиты от отката
-	// (это этапы 4 и 2): размер файла, конверт, заголовок тела, границы таблицы и пула строк.
+	// Шаги приёма DESIGN.md §6.1, кроме подписи и защиты от отката (этап 4): размер файла,
+	// конверт, распаковка тела, заголовок тела, границы таблицы и пула строк.
 	bool open(std::vector<uint8_t> file, std::string& error);
 
 	// Полная проверка всех записей и порядка сортировки. Вызывается при приёме индекса (sync).
@@ -58,10 +58,11 @@ private:
 	bool stringAt(const StrRef& ref, std::string& out) const;
 	bool decode(uint32_t i, const IndexEntry& entry, IndexRecord& out, std::string& error) const;
 
-	std::vector<uint8_t> file_;
+	std::vector<uint8_t> file_;							// нужен только внутри open
+	std::vector<uint8_t> body_;							// тело индекса, уже распакованное
 	IndexHeader header_ = {};
 
-	// Смещения от начала файла, уже проверенные в open.
+	// Смещения от начала тела, уже проверенные в open.
 	size_t entriesOffset_ = 0;
 	size_t stringsOffset_ = 0;
 	size_t stringsSize_ = 0;

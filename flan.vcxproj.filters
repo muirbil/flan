@@ -45,6 +45,12 @@
     <ClCompile Include="src\io\fs.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\io\inflate.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\io\miniz_inflate.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="src\net\http.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -93,6 +99,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\flan\index.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\flan\inflate.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\flan\sha256.hpp">

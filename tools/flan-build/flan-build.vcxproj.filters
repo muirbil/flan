@@ -23,6 +23,9 @@
     <ClCompile Include="manifest.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="miniz_full.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="pe.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -36,6 +39,9 @@
       <Filter>Shared</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\io\fs.cpp">
+      <Filter>Shared</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\io\inflate.cpp">
       <Filter>Shared</Filter>
     </ClCompile>
     <ClCompile Include="..\..\src\net\http.cpp">

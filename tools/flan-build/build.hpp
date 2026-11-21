@@ -77,8 +77,11 @@ struct BuildEntry {
 	uint8_t sha256[32] = {};
 };
 
-// Собирает index.flan: сортировка, пул строк, тело, конверт без подписи и сжатия.
+// Собирает index.flan: сортировка, пул строк, тело, сжатие raw deflate, конверт без подписи.
 bool buildIndexFile(std::vector<BuildEntry> entries, uint64_t generatedAt, std::vector<uint8_t>& file, std::string& error);
+
+// Raw deflate (без заголовка zlib) — так тело индекса хранится при compression = 1.
+bool deflateRaw(const std::vector<uint8_t>& data, std::vector<uint8_t>& out);
 
 // Атомарная запись произвольного файла: временный файл рядом -> MoveFileExW.
 bool writeFileAtomically(const fs::path& path, const void* data, size_t size, std::string& error);

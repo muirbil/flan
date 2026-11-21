@@ -86,7 +86,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(FlanRoot)include;$(FlanRoot)third_party</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(FlanRoot)include;$(FlanRoot)third_party;$(FlanRoot)third_party\miniz</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -103,7 +103,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(FlanRoot)include;$(FlanRoot)third_party</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(FlanRoot)include;$(FlanRoot)third_party;$(FlanRoot)third_party\miniz</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -118,7 +118,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(FlanRoot)include;$(FlanRoot)third_party</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(FlanRoot)include;$(FlanRoot)third_party;$(FlanRoot)third_party\miniz</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -135,7 +135,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(FlanRoot)include;$(FlanRoot)third_party</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(FlanRoot)include;$(FlanRoot)third_party;$(FlanRoot)third_party\miniz</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -146,12 +146,14 @@
     <ClCompile Include="archive.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="manifest.cpp" />
+    <ClCompile Include="miniz_full.c" />
     <ClCompile Include="pe.cpp" />
     <ClCompile Include="writer.cpp" />
     <!-- Общий с клиентом код: генератор отвергает всё, что отверг бы клиент (DESIGN.md §4) -->
     <ClCompile Include="..\..\src\core\index.cpp" />
     <ClCompile Include="..\..\src\crypto\sha256.cpp" />
     <ClCompile Include="..\..\src\io\fs.cpp" />
+    <ClCompile Include="..\..\src\io\inflate.cpp" />
     <ClCompile Include="..\..\src\net\http.cpp" />
     <ClCompile Include="..\..\src\net\http_policy.cpp" />
   </ItemGroup>

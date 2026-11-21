@@ -121,6 +121,40 @@ namespace {
 		expectRejected(label, rawIndex(pkgs));
 	}
 
+	// Конверт с compression = 1 вокруг уже сжатого тела; rawSize — что заявлено в конверте.
+	std::vector<uint8_t> envelopeAround(const std::vector<uint8_t>& payload, uint32_t rawSize) {
+		Envelope env = {};
+		std::memcpy(env.magic, ENVELOPE_MAGIC, 8);
+		env.envelope_version = ENVELOPE_VERSION;
+		env.compression = COMPRESSION_DEFLATE;
+		env.payload_size = (uint32_t)payload.size();
+		env.raw_size = rawSize;
+
+		std::vector<uint8_t> file(sizeof(env));
+		std::memcpy(file.data(), &env, sizeof(env));
+		file.insert(file.end(), payload.begin(), payload.end());
+		return file;
+	}
+
+	// Тот же индекс, что rawIndex, но с телом, сжатым настоящим deflateRaw генератора.
+	// rawDelta сдвигает заявленный raw_size относительно настоящего.
+	std::vector<uint8_t> compressedIndex(const std::vector<Pkg>& pkgs, int rawDelta = 0) {
+		const std::vector<uint8_t> plain = rawIndex(pkgs);
+		const std::vector<uint8_t> body(plain.begin() + sizeof(Envelope), plain.end());
+		std::vector<uint8_t> packed;
+		deflateRaw(body, packed);
+		return envelopeAround(packed, (uint32_t)((int64_t)body.size() + rawDelta));
+	}
+
+	// После правки сжатого тела payload_size должен снова совпадать с размером файла,
+	// иначе отказ случится на шаге 1, а не на распаковке, которую хотим проверить.
+	void setPayloadSize(std::vector<uint8_t>& file) {
+		Envelope env;
+		std::memcpy(&env, file.data(), sizeof(env));
+		env.payload_size = (uint32_t)(file.size() - sizeof(Envelope));
+		std::memcpy(file.data(), &env, sizeof(env));
+	}
+
 	// Минимальный заголовок PE: MZ, e_lfanew, "PE\0\0", Machine и Characteristics.
 	std::vector<uint8_t> fakePe(uint16_t machine, uint16_t characteristics, uint32_t peOffset = 0x80) {
 		std::vector<uint8_t> bytes(512, 0);
@@ -204,9 +238,39 @@ void runIndexTests() {
 	mutateEnvelope("reserved != 0", [](Envelope& e) { e.reserved = 1; });
 	mutateEnvelope("key_id 1 (unknown key)", [](Envelope& e) { e.key_id = 1; });
 	mutateEnvelope("key_id 0 with non-zero signature", [](Envelope& e) { e.signature[63] = 1; });
-	mutateEnvelope("compression 1 (deflate)", [](Envelope& e) { e.compression = COMPRESSION_DEFLATE; });
+	mutateEnvelope("compression 1 over an uncompressed body", [](Envelope& e) { e.compression = COMPRESSION_DEFLATE; });
+	mutateEnvelope("compression 2 (unknown)", [](Envelope& e) { e.compression = 2; });
 	mutateEnvelope("raw_size != payload_size", [](Envelope& e) { e.raw_size -= 1; });
 	mutateEnvelope("payload_size = 0xFFFFFFFF", [](Envelope& e) { e.payload_size = 0xFFFFFFFFu; });
+
+	// Сжатое тело (DESIGN.md §6.1, шаг 4): ровно raw_size байт, вход израсходован целиком,
+	// потолок 32 МБ — до распаковки.
+	beginSuite("index: compressed body");
+	{
+		IndexView v;
+		std::string err;
+		IndexRecord r;
+		check(v.open(compressedIndex(goodPkgs()), err) && v.validateAll(err) &&
+			v.find("ripgrep", ARCH_X64, r, err) == FindResult::Found && r.archiveSize == 1789611, "valid compressed index", err);
+	}
+	expectRejected("raw_size one byte too small", compressedIndex(goodPkgs(), -1));
+	expectRejected("raw_size one byte too large", compressedIndex(goodPkgs(), +1));
+	{ auto f = compressedIndex(goodPkgs()); f.push_back(0x42); setPayloadSize(f); expectRejected("data after the deflate stream", f); }
+	{ auto f = compressedIndex(goodPkgs()); f.resize(f.size() - 5); setPayloadSize(f); expectRejected("truncated deflate stream", f); }
+	{ auto f = compressedIndex(goodPkgs()); for (size_t i = sizeof(Envelope); i < f.size(); i++) f[i] ^= 0x5A; expectRejected("garbage deflate stream", f); }
+	{
+		// «Бомба»: 20 МБ нулей сжимаются в десятки килобайт, а raw_size заявлен 1 МБ —
+		// распаковка обязана остановиться на 1 МБ, а не раздуть память.
+		std::vector<uint8_t> zeros(20 * 1024 * 1024, 0);
+		std::vector<uint8_t> packed;
+		deflateRaw(zeros, packed);
+		expectRejected("expands far beyond raw_size", envelopeAround(packed, 1024 * 1024));
+	}
+	{
+		std::vector<uint8_t> packed;
+		deflateRaw(std::vector<uint8_t>(64, 0), packed);
+		expectRejected("raw_size over 32 MB", envelopeAround(packed, 33u * 1024 * 1024));
+	}
 
 	beginSuite("index: body header");
 	mutateHeader("bad body magic", [](IndexHeader& h) { h.magic[7] = 'X'; });
@@ -349,8 +413,8 @@ void runIndexTests() {
 		std::memcpy(&env, file.data(), sizeof(env));
 		bool zeroSignature = true;
 		for (const uint8_t b : env.signature) zeroSignature = zeroSignature && b == 0;
-		check(env.key_id == KEY_ID_UNSIGNED && env.compression == COMPRESSION_NONE && zeroSignature &&
-			env.payload_size == env.raw_size, "unsigned, uncompressed envelope");
+		check(env.key_id == KEY_ID_UNSIGNED && env.compression == COMPRESSION_DEFLATE && zeroSignature &&
+			env.payload_size + sizeof(Envelope) == file.size(), "unsigned, deflate-compressed envelope");
 	}
 	{
 		std::vector<uint8_t> file;

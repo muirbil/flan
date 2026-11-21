@@ -1,4 +1,5 @@
 #include "flan/index.hpp"
+#include "flan/inflate.hpp"
 #include "flan/validate.hpp"
 #include <cstring>
 #include <utility>
@@ -35,6 +36,7 @@ bool archFromName(const std::string& name, uint8_t& arch) {
 
 bool IndexView::open(std::vector<uint8_t> file, std::string& error) {
 	file_ = std::move(file);
+	body_.clear();
 	header_ = {};
 	entriesOffset_ = stringsOffset_ = stringsSize_ = 0;
 
@@ -85,24 +87,37 @@ bool IndexView::open(std::vector<uint8_t> file, std::string& error) {
 		}
 	}
 
-	// Распаковка появится на этапе 2; до тех пор тело лежит как есть.
-	if (envelope.compression != COMPRESSION_NONE) {
-		error = "compressed index is not supported by this version of flan";
-		return false;
-	}
-
-	if (envelope.payload_size != envelope.raw_size) {
-		error = "uncompressed index has payload_size != raw_size";
-		return false;
-	}
-
-	const uint64_t bodyOffset = sizeof(Envelope);
-	const uint64_t bodySize = envelope.raw_size;
-
-	if (bodySize > MAX_INDEX_RAW_SIZE) {
+	// Шаг 4: тело. Потолок raw_size проверяется до распаковки, а распакованное
+	// обязано быть ровно raw_size байт (DESIGN.md §6.1).
+	if (envelope.raw_size > MAX_INDEX_RAW_SIZE) {
 		error = "index body is too large";
 		return false;
 	}
+
+	const uint8_t* payload = file_.data() + sizeof(Envelope);
+	if (envelope.compression == COMPRESSION_NONE) {
+		if (envelope.payload_size != envelope.raw_size) {
+			error = "uncompressed index has payload_size != raw_size";
+			return false;
+		}
+		body_.assign(payload, payload + envelope.payload_size);
+	}
+	else if (envelope.compression == COMPRESSION_DEFLATE) {
+		if (!inflateRawExact(payload, envelope.payload_size, envelope.raw_size, body_, error)) {
+			error = "index body is corrupted (" + error + ")";
+			return false;
+		}
+	}
+	else {
+		error = "index compression " + std::to_string(envelope.compression) + " is not supported by this version of flan";
+		return false;
+	}
+
+	// Файл больше не нужен: дальше всё читается из тела.
+	file_.clear();
+	file_.shrink_to_fit();
+
+	const uint64_t bodySize = body_.size();
 
 	// Шаг 5: заголовок тела и границы.
 	if (bodySize < sizeof(IndexHeader)) {
@@ -110,7 +125,7 @@ bool IndexView::open(std::vector<uint8_t> file, std::string& error) {
 		return false;
 	}
 
-	std::memcpy(&header_, file_.data() + bodyOffset, sizeof(IndexHeader));
+	std::memcpy(&header_, body_.data(), sizeof(IndexHeader));
 
 	if (std::memcmp(header_.magic, INDEX_BODY_MAGIC, sizeof(INDEX_BODY_MAGIC)) != 0) {
 		error = "index body is corrupted (bad magic)";
@@ -140,8 +155,8 @@ bool IndexView::open(std::vector<uint8_t> file, std::string& error) {
 		return false;
 	}
 
-	entriesOffset_ = (size_t)(bodyOffset + sizeof(IndexHeader));
-	stringsOffset_ = (size_t)(bodyOffset + header_.strings_offset);
+	entriesOffset_ = sizeof(IndexHeader);
+	stringsOffset_ = header_.strings_offset;
 	stringsSize_ = header_.strings_size;
 	return true;
 }
@@ -158,7 +173,7 @@ void IndexView::entryAt(uint32_t i, IndexEntry& entry) const {
 	// Границы всей таблицы проверены в open, а i < entry_count проверяют вызывающие.
 	// Читается только известная часть записи: хвост из будущих версий пропускается.
 	const size_t offset = entriesOffset_ + (size_t)((uint64_t)i * header_.entry_size);
-	std::memcpy(&entry, file_.data() + offset, sizeof(IndexEntry));
+	std::memcpy(&entry, body_.data() + offset, sizeof(IndexEntry));
 }
 
 bool IndexView::stringAt(const StrRef& ref, std::string& out) const {
@@ -166,7 +181,7 @@ bool IndexView::stringAt(const StrRef& ref, std::string& out) const {
 		return false;
 	}
 
-	out.assign(reinterpret_cast<const char*>(file_.data() + stringsOffset_ + ref.off), ref.len);
+	out.assign(reinterpret_cast<const char*>(body_.data() + stringsOffset_ + ref.off), ref.len);
 	return true;
 }
 

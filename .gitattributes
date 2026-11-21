@@ -61,3 +61,7 @@
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
+
+# Вендоренный код хранится байт в байт, как в релизе: хэши в third_party/README.md
+# должны совпадать и в свежем клоне при core.autocrlf.
+third_party/miniz/** -text
