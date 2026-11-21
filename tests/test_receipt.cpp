@@ -1,4 +1,5 @@
 #include "test.hpp"
+#include "core/index_state.hpp"
 #include "core/receipt.hpp"
 #include "core/shim.hpp"
 #include "flan/format.hpp"
@@ -110,6 +111,37 @@ void runReceiptTests() {
 	expectCorrupt("bins empty", withLine("bins", ""));
 	expectCorrupt("installed_at with ESC", withLine("installed_at", "2026\x1b[31m"));
 	expectCorrupt("empty text", "");
+
+	// state\index.state: повреждённое состояние — не ошибка, а «без условного запроса».
+	beginSuite("index state");
+	{
+		IndexState state;
+		state.source = "https://raw.githubusercontent.com/muirbil/flan-packages/main/index.flan";
+		state.etag = "\"87100af0bc297c89f656b23a5151f69980ac2c94707289605dc6ff92baea6d61\"";
+		state.generatedAt = 1795269156;
+		IndexState parsed;
+		check(parseIndexState(formatIndexState(state), parsed) && parsed.source == state.source &&
+			parsed.etag == state.etag && parsed.generatedAt == state.generatedAt, "round trip with a strong ETag");
+
+		state.etag = "W/\"abc\"";
+		check(parseIndexState(formatIndexState(state), parsed) && parsed.etag == "W/\"abc\"", "weak ETag kept verbatim");
+
+		state.etag.clear();
+		check(parseIndexState(formatIndexState(state), parsed) && parsed.etag.empty(), "no ETag");
+	}
+	{
+		IndexState parsed;
+		check(parseIndexState("source=C:\\repo\\index.flan\r\netag=\r\ngenerated_at=5\r\nfuture=1\r\n", parsed) &&
+			parsed.source == "C:\\repo\\index.flan" && parsed.generatedAt == 5, "CRLF and unknown key");
+		check(!parseIndexState("etag=\"x\"\n", parsed), "missing source");
+		check(!parseIndexState("source=\n", parsed), "empty source");
+		check(!parseIndexState("source=a\nnoequals\n", parsed), "line without '='");
+		check(!parseIndexState("source=a\ngenerated_at=-1\n", parsed), "negative generated_at");
+		check(!parseIndexState("source=a\netag=\"x\x01y\"\n", parsed), "control character in ETag");
+		check(!parseIndexState("source=a\tb\n", parsed), "control character in source");
+		check(!parseIndexState("source=a\netag=" + std::string(300, 'x') + "\n", parsed), "overlong ETag");
+		check(!parseIndexState("", parsed), "empty file");
+	}
 
 	beginSuite("shim");
 	{

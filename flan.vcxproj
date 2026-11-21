@@ -142,6 +142,7 @@
   <ItemGroup>
     <ClCompile Include="src\cli\main.cpp" />
     <ClCompile Include="src\core\index.cpp" />
+    <ClCompile Include="src\core\index_state.cpp" />
     <ClCompile Include="src\core\install.cpp" />
     <ClCompile Include="src\core\lock.cpp" />
     <ClCompile Include="src\core\receipt.cpp" />
@@ -154,6 +155,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\core\exit_code.hpp" />
+    <ClInclude Include="src\core\index_state.hpp" />
     <ClInclude Include="src\core\install.hpp" />
     <ClInclude Include="src\core\lock.hpp" />
     <ClInclude Include="src\core\paths.hpp" />

@@ -150,6 +150,7 @@
     <ClCompile Include="test_validate.cpp" />
     <!-- Тестируемый код: разбор индекса, квитанции и прослойки клиента, писатель генератора -->
     <ClCompile Include="..\src\core\index.cpp" />
+    <ClCompile Include="..\src\core\index_state.cpp" />
     <ClCompile Include="..\src\core\receipt.cpp" />
     <ClCompile Include="..\src\core\shim.cpp" />
     <ClCompile Include="..\src\crypto\sha256.cpp" />

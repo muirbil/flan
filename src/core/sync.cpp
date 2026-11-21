@@ -3,6 +3,7 @@
 
 #include <windows.h>
 #include "core/sync.hpp"
+#include "core/index_state.hpp"
 #include "flan/fs.hpp"
 #include "flan/http.hpp"
 #include "flan/validate.hpp"
@@ -87,7 +88,12 @@ ExitCode syncIndex(const FlanPaths& paths) {
 	const std::string candidate = paths.state + "\\index.flan.part";
 	deleteFile(candidate.c_str());
 
+	IndexState accepted;
+	accepted.source = source.location;
+	uint64_t received = 0;
+
 	if (source.local) {
+		// Локальный FLAN_REPO копируется всегда: это дёшево (§7.2).
 		std::cout << "Copying index from " << source.location << std::endl;
 		if (!CopyFileA(source.location.c_str(), candidate.c_str(), FALSE)) {
 			std::cerr << "Error: cannot copy " << source.location << " (code " << GetLastError() << ")." << std::endl;
@@ -95,11 +101,52 @@ ExitCode syncIndex(const FlanPaths& paths) {
 		}
 	}
 	else {
-		std::cout << "Downloading index from " << source.location << std::endl;
-		if (!downloadFile(source.location, candidate)) {
-			std::cerr << "Error: failed to download the index. Check your internet connection." << std::endl;
+		HttpRequest request;
+		request.url = source.location;
+		request.destination = candidate;
+		request.maxSize = MAX_INDEX_FILE_SIZE;
+
+		// ETag уходит, только если индекс взят из того же источника и локальная копия цела:
+		// иначе 304 оставил бы нас без рабочего индекса (§7.2).
+		IndexState previous;
+		IndexView current;
+		std::string ignored;
+		if (loadIndexState(paths, previous) && previous.source == source.location && !previous.etag.empty() &&
+			loadLocalIndex(paths, current, ignored)) {
+			request.ifNoneMatch = previous.etag;
+		}
+
+		std::cout << (request.ifNoneMatch.empty() ? "Downloading" : "Checking") << " index at " << source.location << std::endl;
+		const HttpResult result = httpGet(request);
+
+		switch (result.outcome) {
+		case HttpOutcome::NotModified:
+			deleteFile(candidate.c_str());
+			std::cout << "Index is up to date (304 Not Modified, " << result.bodyBytes << " bytes of body)." << std::endl;
+			return ExitCode::Ok;
+		case HttpOutcome::Ok:
+			break;
+		case HttpOutcome::SizeMismatch:
+			deleteFile(candidate.c_str());
+			std::cerr << "Error: the index is larger than " << (MAX_INDEX_FILE_SIZE / (1024 * 1024))
+				<< " MB. The current index is kept." << std::endl;
+			return ExitCode::Integrity;
+		case HttpOutcome::LocalError:
+			deleteFile(candidate.c_str());
+			std::cerr << "Error: " << result.error << "." << std::endl;
+			return ExitCode::Error;
+		case HttpOutcome::NetworkError:
+			deleteFile(candidate.c_str());
+			std::cerr << "Error: failed to download the index: " << result.error << ". Check your internet connection." << std::endl;
+			return ExitCode::Network;
+		default:
+			deleteFile(candidate.c_str());
+			std::cerr << "Error: failed to download the index: " << result.error << "." << std::endl;
 			return ExitCode::Network;
 		}
+
+		accepted.etag = result.etag;
+		received = result.bodyBytes;
 	}
 
 	std::vector<uint8_t> file;
@@ -138,8 +185,18 @@ ExitCode syncIndex(const FlanPaths& paths) {
 		}
 	}
 
+	// Состояние пишется после принятия индекса: ETag всегда описывает тот файл, что лежит в state\.
+	accepted.generatedAt = view.generatedAt();
+	if (!saveIndexState(paths, accepted)) {
+		std::cerr << "Warning: cannot write " << paths.state << "\\index.state; the next sync will download the index in full." << std::endl;
+	}
+
 	std::cout << "Index updated: " << packages.size() << " package(s), " << view.count() << " build(s), generated "
-		<< formatUnixTime(view.generatedAt()) << "." << std::endl;
+		<< formatUnixTime(view.generatedAt());
+	if (!source.local) {
+		std::cout << "; " << received << " bytes downloaded";
+	}
+	std::cout << "." << std::endl;
 	return ExitCode::Ok;
 }
 
