@@ -7,6 +7,7 @@
 #include <vector>
 #include "flan/fs.hpp"
 #include "flan/index.hpp"
+#include "flan/strings.hpp"
 #include "flan/validate.hpp"
 #include "core/exit_code.hpp"
 #include "core/install.hpp"
@@ -96,7 +97,7 @@ namespace {
 	}
 }
 
-int main(int argc, char* argv[]) {
+int wmain(int argc, wchar_t* argv[]) {
 	SetConsoleOutputCP(CP_UTF8);
 
 	if (argc < 2) {
@@ -104,7 +105,19 @@ int main(int argc, char* argv[]) {
 		return exitWith(ExitCode::Usage);
 	}
 
-	const std::string command = argv[1];
+	// Аргументы — в UTF-8, как и всё внутри flan (DESIGN.md §7.1). Невалидный UTF-16
+	// в аргументе — заведомо не имя пакета и не команда.
+	std::vector<std::string> args;
+	for (int i = 0; i < argc; i++) {
+		std::string arg;
+		if (!toUtf8(argv[i], arg)) {
+			std::cerr << "Error: argument " << i << " is not valid Unicode." << std::endl;
+			return exitWith(ExitCode::Usage);
+		}
+		args.push_back(arg);
+	}
+
+	const std::string command = args[1];
 
 	const bool knownCommand = command == "sync" || command == "list" || command == "install" ||
 		command == "uninstall" || command == "installed";
@@ -120,20 +133,20 @@ int main(int argc, char* argv[]) {
 		return exitWith(ExitCode::Usage);
 	}
 
-	const std::string userDir = getUserDirectory();
-
-	// Пустой путь превратил бы все дальнейшие пути в "\apps", "\bin" и т. д.,
-	// то есть в каталоги в корне текущего диска.
-	if (userDir.empty()) {
-		std::cerr << "Fatal: could not determine the user profile directory." << std::endl;
+	// Корень — FLAN_HOME или %USERPROFILE%\.flan (DESIGN.md §7.1). Без него дальше нельзя:
+	// пустой путь превратил бы все пути в "\apps", "\bin" — каталоги в корне текущего диска.
+	std::string userDir;
+	std::string error;
+	if (!resolveFlanHome(userDir, error)) {
+		std::cerr << "Fatal: " << error << "." << std::endl;
 		return exitWith(ExitCode::Error);
 	}
 
 	const FlanPaths paths = FlanPaths::under(userDir);
 
 	// Раскладка DESIGN.md §7.1.
-	if (!createDirectory(paths.apps.c_str()) || !createDirectory(paths.bin.c_str()) || !createDirectory(paths.cache.c_str()) ||
-		!createDirectory(paths.state.c_str()) || !createDirectory(paths.tmp.c_str())) {
+	if (!createDirectory(paths.apps) || !createDirectory(paths.bin) || !createDirectory(paths.cache) ||
+		!createDirectory(paths.state) || !createDirectory(paths.tmp)) {
 		std::cerr << "Fatal: could not create the flan directories under " << userDir << std::endl;
 		return exitWith(ExitCode::Error);
 	}
@@ -161,10 +174,10 @@ int main(int argc, char* argv[]) {
 		return exitWith(syncIndex(paths));
 	}
 	if (command == "install") {
-		return exitWith(installPackage(paths, argv[2]));
+		return exitWith(installPackage(paths, args[2]));
 	}
 	if (command == "uninstall") {
-		return exitWith(uninstallPackage(paths, argv[2]));
+		return exitWith(uninstallPackage(paths, args[2]));
 	}
 	if (command == "list") {
 		return exitWith(listAvailable(paths));

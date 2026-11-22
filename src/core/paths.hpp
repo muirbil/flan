@@ -2,8 +2,8 @@
 
 #include <string>
 
-// Каталоги %FLAN_HOME% (DESIGN.md §7.1). До этапа 3 корень — %USERPROFILE%\.flan,
-// а пути — ANSI-строки; Unicode и FLAN_HOME появятся вместе с io/fs.cpp на W-функциях.
+// Каталоги %FLAN_HOME% (DESIGN.md §7.1). Корень — FLAN_HOME или %USERPROFILE%\.flan
+// (resolveFlanHome). Пути — UTF-8; в UTF-16 с \\?\ их переводит io/fs прямо перед вызовом ФС.
 struct FlanPaths {
 	std::string home;
 	std::string apps;									// apps\<name>\<dir>\, apps\<name>\receipt

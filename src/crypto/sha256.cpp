@@ -1,8 +1,9 @@
-﻿#define WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
 
 #include <windows.h>
 #include <bcrypt.h>
 #include "flan/sha256.hpp"
+#include "flan/fs.hpp"
 #include "flan/hex.hpp"
 #include <fstream>
 
@@ -95,7 +96,8 @@ namespace crypto {
     }
 
     std::string calculateSHA256(const std::string& filePath) {
-        std::ifstream file(filePath, std::ios::binary);
+        // Путь — UTF-8; ifstream получает его уже в UTF-16 (DESIGN.md §7.1).
+        std::ifstream file(extendedPath(filePath).c_str(), std::ios::binary);
         if (!file) {
             return std::string();
         }

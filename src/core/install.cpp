@@ -12,7 +12,6 @@
 #include "flan/index.hpp"
 #include "flan/sha256.hpp"
 #include "flan/validate.hpp"
-#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <vector>
@@ -55,7 +54,7 @@ namespace {
 
 	void writePendingDeletes(const FlanPaths& paths, const std::vector<std::string>& entries) {
 		if (entries.empty()) {
-			DeleteFileA(pendingDeletePath(paths).c_str());
+			deleteFile(pendingDeletePath(paths));
 			return;
 		}
 
@@ -76,7 +75,7 @@ namespace {
 	}
 
 	bool exists(const std::string& path) {
-		return GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+		return pathExists(path);
 	}
 
 	// Архитектуры ОС в порядке предпочтения (DESIGN.md §7.6, шаг 1). GetNativeSystemInfo
@@ -132,77 +131,21 @@ namespace {
 	}
 
 	// Остатки установок, прерванных падением или убийством процесса. Под блокировкой
-	// другого flan нет, поэтому любой .staging-* и любой tmp\<name>-*.zip — мёртвый.
+	// другого flan нет, поэтому любой apps\<name>\.staging-* — мёртвый. Обход — по "*"
+	// с отбором в коде, на UTF-16 (DESIGN.md §7.1).
 	void removeStaleLeftovers(const FlanPaths& paths, const std::string& name) {
-		WIN32_FIND_DATAA found = {};
+		const std::wstring appDir = extendedPath(paths.apps + "\\" + name);
 
-		const std::string appDir = paths.apps + "\\" + name;
-		HANDLE search = FindFirstFileA((appDir + "\\.staging-*").c_str(), &found);
-		if (search != INVALID_HANDLE_VALUE) {
-			do {
-				removeTree(appDir + "\\" + found.cFileName);
-			} while (FindNextFileA(search, &found));
-			FindClose(search);
+		std::vector<DirEntry> entries;
+		if (!listDirectory(appDir, entries)) {
+			return;
 		}
 
-		search = FindFirstFileA((paths.tmp + "\\" + name + "-*.zip*").c_str(), &found);
-		if (search != INVALID_HANDLE_VALUE) {
-			do {
-				DeleteFileA((paths.tmp + "\\" + found.cFileName).c_str());
-			} while (FindNextFileA(search, &found));
-			FindClose(search);
+		for (const DirEntry& entry : entries) {
+			if (entry.name.compare(0, 9, L".staging-") == 0) {
+				removeTreeW(appDir + L"\\" + entry.name);
+			}
 		}
-	}
-}
-
-bool removeTree(const std::string& path) {
-	std::error_code ec;
-	std::filesystem::remove_all(std::filesystem::path(path), ec);
-	return !ec && !exists(path);
-}
-
-namespace {
-
-	// Занят ли хоть один файл в дереве. Признак — открытие на запись при полном совместном
-	// доступе: работающий .exe и файл, открытый программой, дают ERROR_SHARING_VIOLATION.
-	// Проверено: открытие на чтение без совместного доступа работающий .exe пропускает
-	// (у образа нет открытого дескриптора), а каталог с ним Windows даёт переименовать,
-	// так что переименование занятость тоже не показывает. Файлы не изменяются: OPEN_EXISTING.
-	bool treeInUse(const std::string& dir) {
-		WIN32_FIND_DATAA found = {};
-		const HANDLE search = FindFirstFileA((dir + "\\*").c_str(), &found);
-		if (search == INVALID_HANDLE_VALUE) {
-			return false;
-		}
-
-		bool inUse = false;
-		do {
-			const std::string name = found.cFileName;
-			if (name == "." || name == "..") {
-				continue;
-			}
-
-			const std::string path = dir + "\\" + name;
-			if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-				// Точки повторного анализа (junction, symlink) не обходим: они ведут за пределы пакета.
-				if (!(found.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
-					inUse = treeInUse(path);
-				}
-				continue;
-			}
-
-			const HANDLE file = CreateFileA(path.c_str(), GENERIC_WRITE,
-				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-			if (file != INVALID_HANDLE_VALUE) {
-				CloseHandle(file);
-			}
-			else if (GetLastError() == ERROR_SHARING_VIOLATION) {
-				inUse = true;
-			}
-		} while (!inUse && FindNextFileA(search, &found));
-
-		FindClose(search);
-		return inUse;
 	}
 }
 
@@ -210,10 +153,11 @@ bool removeTreeIfUnused(const std::string& path) {
 	if (!exists(path)) {
 		return true;
 	}
-	if (treeInUse(path)) {
+	const std::wstring wide = extendedPath(path);
+	if (treeInUse(wide)) {
 		return false;
 	}
-	return removeTree(path);
+	return removeTreeW(wide);
 }
 
 void addPendingDelete(const FlanPaths& paths, const std::string& entry) {
@@ -278,7 +222,7 @@ namespace {
 
 	// Первые size байт уже скачанной части — в хэш, один раз перед продолжением (§7.2).
 	bool hashExistingPart(const std::string& path, uint64_t size, crypto::Sha256& hasher) {
-		std::ifstream in(path, std::ios::binary);
+		std::ifstream in(extendedPath(path).c_str(), std::ios::binary);
 		std::vector<char> buffer(64 * 1024);
 		uint64_t left = size;
 		while (in && left > 0) {
@@ -309,19 +253,19 @@ namespace {
 				std::cout << "Using the cached archive of " << label << "." << std::endl;
 				return ExitCode::Ok;
 			}
-			deleteFile(archive.c_str());
+			deleteFile(archive);
 		}
 
 		for (int pass = 0; pass < 2; pass++) {
 			uint64_t have = 0;
 			if (fileSize(part, have) && have > entry.archiveSize) {
-				deleteFile(part.c_str());
+				deleteFile(part);
 				have = 0;
 			}
 
 			crypto::Sha256 hasher;
 			if (have > 0 && !hashExistingPart(part, have, hasher)) {
-				deleteFile(part.c_str());
+				deleteFile(part);
 				hasher.reset();
 				have = 0;
 			}
@@ -367,7 +311,7 @@ namespace {
 					}
 					break;
 				case HttpOutcome::SizeMismatch:
-					deleteFile(part.c_str());
+					deleteFile(part);
 					std::cerr << "Error: " << label << ": " << result.error << "." << std::endl;
 					return ExitCode::Integrity;
 				case HttpOutcome::LocalError:
@@ -382,14 +326,14 @@ namespace {
 
 			const std::string actual = hasher.finishHex();
 			if (actual == sha256) {
-				if (!MoveFileExA(part.c_str(), archive.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+				if (!moveFile(part, archive, true)) {
 					std::cerr << "Error: cannot move the archive into " << archive << " (code " << GetLastError() << ")." << std::endl;
 					return ExitCode::Error;
 				}
 				return ExitCode::Ok;
 			}
 
-			deleteFile(part.c_str());
+			deleteFile(part);
 			if (resumedAnywhere && pass == 0) {
 				std::cerr << "Warning: SHA-256 mismatch after resuming; downloading " << label << " again from scratch." << std::endl;
 				continue;
@@ -431,14 +375,14 @@ ExitCode uninstallPackage(const FlanPaths& paths, const std::string& requestedNa
 	// 1. Прослойки — по строке владельца, а не по квитанции: так uninstall работает
 	//    и с повреждённой квитанцией, а чужие прослойки не трогает никогда.
 	for (const std::string& command : commands) {
-		if (!deleteFile(shimPath(paths, command).c_str())) {
+		if (!deleteFile(shimPath(paths, command))) {
 			std::cerr << "Warning: cannot remove " << shimPath(paths, command) << "." << std::endl;
 		}
 	}
 
 	// 2. Квитанция: с этого момента пакет считается удалённым.
 	const std::string receiptFile = receiptPath(paths, name);
-	if (exists(receiptFile) && !deleteFile(receiptFile.c_str())) {
+	if (exists(receiptFile) && !deleteFile(receiptFile)) {
 		std::cerr << "Error: cannot remove " << receiptFile << " (code " << GetLastError() << ")." << std::endl;
 		return ExitCode::Error;
 	}
@@ -549,8 +493,8 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 	// Одиночный .exe (DESIGN.md §5.2) не распаковывается: проверенный файл копируется
 	// в staging под единственным именем из bins, дальше — те же шаги, что и для zip.
 	const bool exe = entry.kind == KIND_EXE;
-	const bool staged = createDirectory(appDir.c_str()) && createDirectory(staging.c_str()) &&
-		(exe ? CopyFileA(archive.c_str(), (staging + "\\" + entry.bins[0]).c_str(), TRUE) != 0
+	const bool staged = createDirectory(appDir) && createDirectory(staging) &&
+		(exe ? copyFile(archive, staging + "\\" + entry.bins[0], false)
 			 : extractArchive(archive, staging));
 
 	if (!staged) {
@@ -587,7 +531,7 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 	}
 
 	const std::string versionDir = appDir + "\\" + dir;
-	if (!MoveFileExA(root.c_str(), versionDir.c_str(), 0)) {
+	if (!moveFile(root, versionDir, false)) {
 		std::cerr << "Error: cannot move the package into " << versionDir << " (code " << GetLastError() << ")." << std::endl;
 		return abort(ExitCode::Error);
 	}
@@ -613,7 +557,7 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 
 			std::string owner;
 			if (!kept && readShimOwner(paths, command, owner) == ShimOwner::Package && owner == name) {
-				deleteFile(shimPath(paths, command).c_str());
+				deleteFile(shimPath(paths, command));
 			}
 		}
 	}
@@ -634,7 +578,7 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 	}
 
 	// Политика кэша (DESIGN.md §7.6): после фиксации архив не нужен — распакованное в apps\.
-	deleteFile(archive.c_str());
+	deleteFile(archive);
 
 	// Шаг 9: прежняя версия. Занята запущенной программой — удалится при следующем запуске flan.
 	if (upgrading && old.dir != dir) {

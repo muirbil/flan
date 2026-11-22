@@ -8,6 +8,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include "flan/fs.hpp"
 #include "flan/http.hpp"
 #include "flan/http_policy.hpp"
 #include "flan/sha256.hpp"
@@ -166,7 +167,7 @@ namespace {
         }
 
         bool open(const std::string& path) {
-            handle_ = CreateFileA(path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_ALWAYS,
+            handle_ = CreateFileW(extendedPath(path).c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_ALWAYS,
                 FILE_ATTRIBUTE_NORMAL, NULL);
             return handle_ != INVALID_HANDLE_VALUE;
         }
@@ -199,10 +200,12 @@ namespace {
     // §7.2: Debug-сборка один раз рвёт загрузку после FLAN_DEBUG_DROP_AFTER байт тела —
     // так повтор с докачкой проверяется на настоящем сервере. В Release этого кода нет.
     uint64_t debugDropAfter() {
-        char value[32] = {};
-        const DWORD length = GetEnvironmentVariableA("FLAN_DEBUG_DROP_AFTER", value, sizeof(value));
+        wchar_t value[32] = {};
+        const DWORD length = GetEnvironmentVariableW(L"FLAN_DEBUG_DROP_AFTER", value, ARRAYSIZE(value));
+        std::string digits;
         uint64_t bytes = 0;
-        return (length > 0 && length < sizeof(value) && parseUint64(value, bytes)) ? bytes : 0;
+        return (length > 0 && length < ARRAYSIZE(value) && toUtf8(std::wstring(value, length), digits) &&
+            parseUint64(digits, bytes)) ? bytes : 0;
     }
 #endif
 }
@@ -498,13 +501,13 @@ bool downloadFile(const std::string& url, const std::string& destination) {
     const HttpResult result = httpGet(request);
     if (result.outcome != HttpOutcome::Ok) {
         std::cerr << "Error: " << result.error << "." << std::endl;
-        DeleteFileW(s2ws(partial).c_str());
+        deleteFile(partial);
         return false;
     }
 
-    if (!MoveFileExW(s2ws(partial).c_str(), s2ws(destination).c_str(), MOVEFILE_REPLACE_EXISTING)) {
+    if (!moveFile(partial, destination, true)) {
         std::cerr << "Error: failed to finalize " << destination << " (code " << GetLastError() << ")." << std::endl;
-        DeleteFileW(s2ws(partial).c_str());
+        deleteFile(partial);
         return false;
     }
     return true;

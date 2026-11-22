@@ -124,7 +124,7 @@ std::string receiptPath(const FlanPaths& paths, const std::string& name) {
 
 ReceiptState readReceipt(const FlanPaths& paths, const std::string& name, Receipt& out, std::string& error) {
 	const std::string path = receiptPath(paths, name);
-	if (GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+	if (!pathExists(path)) {
 		return ReceiptState::Missing;
 	}
 
@@ -155,17 +155,16 @@ bool writeReceipt(const FlanPaths& paths, const Receipt& receipt) {
 std::vector<Receipt> listReceipts(const FlanPaths& paths, std::vector<std::string>& problems) {
 	std::vector<Receipt> receipts;
 
-	WIN32_FIND_DATAA found = {};
-	const HANDLE search = FindFirstFileA((paths.apps + "\\*").c_str(), &found);
-	if (search == INVALID_HANDLE_VALUE) {
+	std::vector<DirEntry> entries;
+	if (!listDirectory(extendedPath(paths.apps), entries)) {
 		return receipts;
 	}
 
-	do {
-		const std::string name = found.cFileName;
-
-		// Каталоги не по правилам имён пакетов (".", "..", чужое) — не пакеты flan.
-		if (!(found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || !isSafePackageName(name)) {
+	for (const DirEntry& entry : entries) {
+		// Каталоги не по правилам имён пакетов (не-ASCII, чужое) — не пакеты flan.
+		// Имя проверяется ещё в UTF-16 и в UTF-8 не переводится (DESIGN.md §7.1).
+		std::string name;
+		if (!(entry.attributes & FILE_ATTRIBUTE_DIRECTORY) || !asciiName(entry.name, name) || !isSafePackageName(name)) {
 			continue;
 		}
 
@@ -181,9 +180,8 @@ std::vector<Receipt> listReceipts(const FlanPaths& paths, std::vector<std::strin
 		case ReceiptState::Missing:
 			break;										// остаток удаления, ждёт pending-delete
 		}
-	} while (FindNextFileA(search, &found));
+	}
 
-	FindClose(search);
 	return receipts;
 }
 

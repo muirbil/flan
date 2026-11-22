@@ -74,7 +74,7 @@ std::string shimPath(const FlanPaths& paths, const std::string& command) {
 ShimOwner readShimOwner(const FlanPaths& paths, const std::string& command, std::string& owner) {
 	owner.clear();
 	const std::string path = shimPath(paths, command);
-	if (GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+	if (!pathExists(path)) {
 		return ShimOwner::None;
 	}
 
@@ -94,21 +94,21 @@ bool writeShim(const FlanPaths& paths, const std::string& command, const std::st
 std::vector<std::string> shimsOwnedBy(const FlanPaths& paths, const std::string& package) {
 	std::vector<std::string> commands;
 
-	WIN32_FIND_DATAA found = {};
-	const HANDLE search = FindFirstFileA((paths.bin + "\\*.bat").c_str(), &found);
-	if (search == INVALID_HANDLE_VALUE) {
+	std::vector<DirEntry> entries;
+	if (!listDirectory(extendedPath(paths.bin), entries)) {
 		return commands;
 	}
 
-	do {
-		if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+	for (const DirEntry& entry : entries) {
+		if (entry.attributes & FILE_ATTRIBUTE_DIRECTORY) {
 			continue;
 		}
 
-		// Маска *.bat совпадает и по коротким именам 8.3 ("foo.batch" -> FOO~1.BAT),
-		// поэтому окончание длинного имени проверяется отдельно.
-		std::string command = found.cFileName;
-		if (command.size() <= 4 || toLowerAscii(command.substr(command.size() - 4)) != ".bat") {
+		// Обход — по "*", окончание .bat проверяется в коде: маска *.bat совпала бы и с коротким
+		// именем 8.3 ("foo.batch" -> FOO~1.BAT). Не-ASCII имена прослойками flan не бывают.
+		std::string command;
+		if (!asciiName(entry.name, command) || command.size() <= 4 ||
+			toLowerAscii(command.substr(command.size() - 4)) != ".bat") {
 			continue;
 		}
 		command.resize(command.size() - 4);
@@ -117,8 +117,7 @@ std::vector<std::string> shimsOwnedBy(const FlanPaths& paths, const std::string&
 		if (isSafeName(command) && readShimOwner(paths, command, owner) == ShimOwner::Package && owner == package) {
 			commands.push_back(command);
 		}
-	} while (FindNextFileA(search, &found));
+	}
 
-	FindClose(search);
 	return commands;
 }

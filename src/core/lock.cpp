@@ -3,7 +3,7 @@
 
 #include <windows.h>
 #include "core/lock.hpp"
-#include "flan/strings.hpp"
+#include "flan/fs.hpp"
 #include <iostream>
 
 namespace {
@@ -17,7 +17,7 @@ FlanLock::~FlanLock() {
 }
 
 FlanLock::Result FlanLock::acquire(const std::string& path, unsigned timeoutMs) {
-	const std::wstring widePath = s2ws(path);
+	const std::wstring widePath = extendedPath(path);
 	const ULONGLONG deadline = GetTickCount64() + timeoutMs;
 	bool announced = false;
 

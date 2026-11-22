@@ -6,6 +6,7 @@
 #include "core/index_state.hpp"
 #include "flan/fs.hpp"
 #include "flan/http.hpp"
+#include "flan/strings.hpp"
 #include "flan/validate.hpp"
 #include <ctime>
 #include <iostream>
@@ -26,14 +27,16 @@ namespace {
 	bool resolveIndexSource(IndexSource& source, std::string& error) {
 		std::string repo = DEFAULT_REPO;
 
-		char buffer[2048];
-		const DWORD length = GetEnvironmentVariableA("FLAN_REPO", buffer, sizeof(buffer));
-		if (length >= sizeof(buffer)) {
+		// W-функция: локальный путь в FLAN_REPO может быть кириллическим (DESIGN.md §7.1).
+		wchar_t buffer[2048];
+		const DWORD length = GetEnvironmentVariableW(L"FLAN_REPO", buffer, ARRAYSIZE(buffer));
+		if (length >= ARRAYSIZE(buffer)) {
 			error = "FLAN_REPO is too long";
 			return false;
 		}
-		if (length > 0) {
-			repo.assign(buffer, length);
+		if (length > 0 && !toUtf8(std::wstring(buffer, length), repo)) {
+			error = "FLAN_REPO is not a valid path";
+			return false;
 		}
 
 		while (!repo.empty() && (repo.back() == '/' || repo.back() == '\\')) {
@@ -58,7 +61,7 @@ namespace {
 	}
 
 	bool replaceFile(const std::string& from, const std::string& to) {
-		return MoveFileExA(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+		return moveFile(from, to, true);
 	}
 }
 
@@ -86,7 +89,7 @@ ExitCode syncIndex(const FlanPaths& paths) {
 	// пока он не проверен, прежний state\index.flan остаётся рабочим.
 	const std::string target = paths.state + "\\index.flan";
 	const std::string candidate = paths.state + "\\index.flan.part";
-	deleteFile(candidate.c_str());
+	deleteFile(candidate);
 
 	IndexState accepted;
 	accepted.source = source.location;
@@ -95,7 +98,7 @@ ExitCode syncIndex(const FlanPaths& paths) {
 	if (source.local) {
 		// Локальный FLAN_REPO копируется всегда: это дёшево (§7.2).
 		std::cout << "Copying index from " << source.location << std::endl;
-		if (!CopyFileA(source.location.c_str(), candidate.c_str(), FALSE)) {
+		if (!copyFile(source.location, candidate, true)) {
 			std::cerr << "Error: cannot copy " << source.location << " (code " << GetLastError() << ")." << std::endl;
 			return ExitCode::Error;
 		}
@@ -121,26 +124,26 @@ ExitCode syncIndex(const FlanPaths& paths) {
 
 		switch (result.outcome) {
 		case HttpOutcome::NotModified:
-			deleteFile(candidate.c_str());
+			deleteFile(candidate);
 			std::cout << "Index is up to date (304 Not Modified, " << result.bodyBytes << " bytes of body)." << std::endl;
 			return ExitCode::Ok;
 		case HttpOutcome::Ok:
 			break;
 		case HttpOutcome::SizeMismatch:
-			deleteFile(candidate.c_str());
+			deleteFile(candidate);
 			std::cerr << "Error: the index is larger than " << (MAX_INDEX_FILE_SIZE / (1024 * 1024))
 				<< " MB. The current index is kept." << std::endl;
 			return ExitCode::Integrity;
 		case HttpOutcome::LocalError:
-			deleteFile(candidate.c_str());
+			deleteFile(candidate);
 			std::cerr << "Error: " << result.error << "." << std::endl;
 			return ExitCode::Error;
 		case HttpOutcome::NetworkError:
-			deleteFile(candidate.c_str());
+			deleteFile(candidate);
 			std::cerr << "Error: failed to download the index: " << result.error << ". Check your internet connection." << std::endl;
 			return ExitCode::Network;
 		default:
-			deleteFile(candidate.c_str());
+			deleteFile(candidate);
 			std::cerr << "Error: failed to download the index: " << result.error << "." << std::endl;
 			return ExitCode::Network;
 		}
@@ -152,7 +155,7 @@ ExitCode syncIndex(const FlanPaths& paths) {
 	std::vector<uint8_t> file;
 	bool tooLarge = false;
 	if (!readWholeFile(candidate, MAX_INDEX_FILE_SIZE, file, tooLarge)) {
-		deleteFile(candidate.c_str());
+		deleteFile(candidate);
 		if (tooLarge) {
 			std::cerr << "Error: the index is larger than " << (MAX_INDEX_FILE_SIZE / (1024 * 1024))
 				<< " MB. The current index is kept." << std::endl;
@@ -166,14 +169,14 @@ ExitCode syncIndex(const FlanPaths& paths) {
 	// распаковка — с этапа 2, защита от отката — с этапа 4.
 	IndexView view;
 	if (!view.open(std::move(file), error) || !view.validateAll(error)) {
-		deleteFile(candidate.c_str());
+		deleteFile(candidate);
 		std::cerr << "Error: the received index is rejected: " << error << ". The current index is kept." << std::endl;
 		return ExitCode::Integrity;
 	}
 
 	if (!replaceFile(candidate, target)) {
 		std::cerr << "Error: cannot replace " << target << " (code " << GetLastError() << ")." << std::endl;
-		deleteFile(candidate.c_str());
+		deleteFile(candidate);
 		return ExitCode::Error;
 	}
 
@@ -206,8 +209,7 @@ bool loadLocalIndex(const FlanPaths& paths, IndexView& view, std::string& error)
 	std::vector<uint8_t> file;
 	bool tooLarge = false;
 	if (!readWholeFile(path, MAX_INDEX_FILE_SIZE, file, tooLarge)) {
-		const DWORD attributes = GetFileAttributesA(path.c_str());
-		error = attributes == INVALID_FILE_ATTRIBUTES
+		error = !pathExists(path)
 			? "no package index yet. Run 'flan sync' first"
 			: "cannot read " + path + ". Run 'flan sync' to fetch it again";
 		return false;

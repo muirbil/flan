@@ -20,12 +20,12 @@ bool downloadToCache(const std::string& url, const fs::path& cacheDir, CachedArc
 
 	// Имя временного файла уникально для процесса: два flan-build не мешают друг другу.
 	const fs::path temporary = cacheDir / ("download-" + std::to_string(GetCurrentProcessId()) + ".tmp");
-	if (!downloadFile(url, temporary.string())) {
+	if (!downloadFile(url, temporary.u8string())) {
 		error = "download failed: " + url;
 		return false;
 	}
 
-	const std::string sha256 = crypto::calculateSHA256(temporary.string());
+	const std::string sha256 = crypto::calculateSHA256(temporary.u8string());
 	const uintmax_t size = fs::file_size(temporary, ec);
 	if (sha256.empty() || ec) {
 		fs::remove(temporary, ec);
@@ -44,7 +44,7 @@ bool downloadToCache(const std::string& url, const fs::path& cacheDir, CachedArc
 		return false;
 	}
 
-	out.path = cached.string();
+	out.path = cached.u8string();
 	out.sha256 = sha256;
 	out.size = size;
 	return true;
@@ -58,12 +58,12 @@ bool findInCache(const fs::path& cacheDir, const std::string& sha256, CachedArch
 	}
 
 	// Файл в кэше мог испортиться на диске: хэш пересчитывается, испорченный удаляется.
-	if (crypto::calculateSHA256(cached.string()) != sha256) {
+	if (crypto::calculateSHA256(cached.u8string()) != sha256) {
 		fs::remove(cached, ec);
 		return false;
 	}
 
-	out.path = cached.string();
+	out.path = cached.u8string();
 	out.sha256 = sha256;
 	out.size = fs::file_size(cached, ec);
 	return !ec;
@@ -74,7 +74,7 @@ namespace {
 	// Одиночный .exe: проверяется заголовок PE. Заголовок лежит в начале файла,
 	// поэтому хватает первых 64 КБ; e_lfanew дальше этого — заведомо не обычный .exe.
 	bool verifyExecutable(const std::string& path, uint8_t arch, std::string& error) {
-		std::ifstream in(path, std::ios::binary);
+		std::ifstream in(fs::u8path(path), std::ios::binary);		// путь — UTF-8, как в слое fs
 		if (!in) {
 			error = "cannot open the downloaded file";
 			return false;
