@@ -31,6 +31,20 @@ namespace {
 		con::out << "  installed             installed packages" << con::endl;
 	}
 
+	// Запущен ли процесс с повышенными правами (DESIGN.md §1): flan они не нужны.
+	bool isElevated() {
+		HANDLE token = NULL;
+		if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) {
+			return false;
+		}
+		TOKEN_ELEVATION elevation = {};
+		DWORD size = 0;
+		const bool elevated = GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &size) &&
+			elevation.TokenIsElevated != 0;
+		CloseHandle(token);
+		return elevated;
+	}
+
 	// До этапа 5 list показывает доступные пакеты, а установленные — installed (DESIGN.md §7.7).
 	ExitCode listAvailable(const FlanPaths& paths) {
 		IndexView index;
@@ -146,6 +160,12 @@ int wmain(int argc, wchar_t* argv[]) {
 
 	const FlanPaths paths = FlanPaths::under(userDir);
 
+	// Права администратора flan не нужны, а файлы, созданные повышенным процессом, потом могут
+	// мешать обычному (DESIGN.md §1). Это предупреждение, а не отказ.
+	if (isElevated()) {
+		con::err << "Warning: flan is running as administrator. It does not need that, and files it creates now "
+			"may later get in the way of normal runs." << con::endl;
+	}
 	// Раскладка DESIGN.md §7.1.
 	if (!createDirectory(paths.apps) || !createDirectory(paths.bin) || !createDirectory(paths.cache) ||
 		!createDirectory(paths.state) || !createDirectory(paths.tmp)) {

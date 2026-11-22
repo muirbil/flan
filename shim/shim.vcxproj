@@ -67,6 +67,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
+      <EnableUAC>false</EnableUAC>
       <EntryPointSymbol>ShimMain</EntryPointSymbol>
       <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
       <AdditionalDependencies>kernel32.lib</AdditionalDependencies>
@@ -97,6 +98,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\include\flan\shim_cmdline.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Manifest Include="shim.manifest" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
