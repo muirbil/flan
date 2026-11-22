@@ -14,6 +14,7 @@
 #include "core/lock.hpp"
 #include "core/paths.hpp"
 #include "core/receipt.hpp"
+#include "core/shim.hpp"
 #include "core/sync.hpp"
 
 // cli — разбор аргументов, вывод и коды возврата (DESIGN.md §4); вся работа — в core/.
@@ -169,6 +170,9 @@ int wmain(int argc, wchar_t* argv[]) {
 
 		// Каталоги старых версий, занятые в прошлый раз запущенной программой (§7.6, шаг 9).
 		processPendingDeletes(paths);
+
+		// Прослойки, перенесённые в tmp\, потому что их программа тогда работала (§7.4).
+		cleanTemporary(paths);
 	}
 
 	if (command == "sync") {

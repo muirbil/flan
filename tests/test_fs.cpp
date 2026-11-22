@@ -164,17 +164,76 @@ namespace {
 		check(!asciiName(L"bad" + std::wstring(1, (wchar_t)0xD800), ascii) && !asciiName(L"пакет", ascii) &&
 			asciiName(L"ripgrep", ascii) && ascii == "ripgrep", "asciiName");
 
-		// Прослойки: обход по "*", окончание .bat проверяется в коде. rg.batch с коротким
-		// именем RG~1.BAT и кириллическая команда — не прослойки.
-		writeText(shimPath(paths, "real"), formatShim("C:\\x\\real.exe", "pkg"));
-		writeText(paths.bin + "\\rg.batch", formatShim("C:\\x\\rg.exe", "pkg"));
-		writeText(paths.bin + "\\кмд.bat", formatShim("C:\\x\\k.exe", "pkg"));
-		writeText(shimPath(paths, "other"), formatShim("C:\\x\\other.exe", "another"));
+		// Прослойки: обход по "*", окончания .shim и .bat проверяются в коде. rg.batch с коротким
+		// именем RG~1.BAT, x.shim.bak и кириллическая команда — не прослойки.
+		const std::string bat = "@echo off\r\nrem package=pkg\r\n\"C:\\x\\a.exe\" %* & call exit /b %%errorlevel%%\r\n";
+		const std::string batOther = "@echo off\r\nrem package=another\r\n\"C:\\x\\a.exe\" %*\r\n";
+		writeText(batShimPath(paths, "legacy"), bat);
+		writeText(paths.bin + "\\rg.batch", bat);
+		writeText(paths.bin + "\\кмд.bat", bat);
+		writeText(batShimPath(paths, "other"), batOther);
+		writeText(shimFilePath(paths, "tool"), formatShimFile("..\\apps\\pkg\\1\\tool.exe", "pkg"));
+		writeText(shimExePath(paths, "tool"), "MZ");
+		writeText(paths.bin + "\\x.shim.bak", formatShimFile("..\\apps\\pkg\\1\\x.exe", "pkg"));
 
-		const std::vector<std::string> owned = shimsOwnedBy(paths, "pkg");
-		check(owned.size() == 1 && owned[0] == "real", "shimsOwnedBy: only real.bat",
-			std::to_string(owned.size()) + " shim(s)");
+		std::vector<std::string> owned = shimsOwnedBy(paths, "pkg");
+		check(owned.size() == 2 && ((owned[0] == "legacy" && owned[1] == "tool") || (owned[0] == "tool" && owned[1] == "legacy")),
+			"shimsOwnedBy: tool.shim and legacy.bat only", std::to_string(owned.size()) + " shim(s)");
 
+		// Владелец команды (DESIGN.md §7.4).
+		std::string owner;
+		check(readShimOwner(paths, "tool", owner) == ShimOwner::Package && owner == "pkg", "readShimOwner: .exe with .shim");
+		check(readShimOwner(paths, "legacy", owner) == ShimOwner::Package && owner == "pkg", "readShimOwner: stage 1-2 .bat");
+		check(readShimOwner(paths, "none", owner) == ShimOwner::None, "readShimOwner: nothing");
+		writeText(shimExePath(paths, "lonely"), "MZ");
+		check(readShimOwner(paths, "lonely", owner) == ShimOwner::Foreign, "readShimOwner: .exe without .shim is foreign");
+		writeText(shimFilePath(paths, "half"), formatShimFile("..\\apps\\pkg\\1\\half.exe", "pkg"));
+		check(readShimOwner(paths, "half", owner) == ShimOwner::Package && owner == "pkg", "readShimOwner: .shim without .exe is ours");
+		writeText(shimFilePath(paths, "broken"), "garbage");
+		check(readShimOwner(paths, "broken", owner) == ShimOwner::Foreign, "readShimOwner: broken .shim is foreign");
+		writeText(shimFilePath(paths, "mixed"), formatShimFile("..\\apps\\pkg\\1\\mixed.exe", "pkg"));
+		writeText(batShimPath(paths, "mixed"), batOther);
+		check(readShimOwner(paths, "mixed", owner) == ShimOwner::Foreign, "readShimOwner: .shim and .bat of different packages");
+		check(readShimOwner(paths, "flan", owner) == ShimOwner::Foreign && readShimOwner(paths, "FLAN", owner) == ShimOwner::Foreign,
+			"readShimOwner: the name of flan itself");
+
+		// Запись: эталон уже лежит (в тестах ресурса нет), команда — жёсткая ссылка на него;
+		// своя .bat того же имени удаляется, чужая не трогается.
+		std::string error;
+		check(!writeShim(paths, "fresh", "..\\apps\\pkg\\1\\fresh.exe", "pkg", error) && !error.empty(),
+			"writeShim without a reference and without the resource fails", error);
+		writeText(shimReferencePath(paths), "MZ reference");
+		writeText(batShimPath(paths, "legacy"), bat);
+		check(writeShim(paths, "legacy", "..\\apps\\pkg\\2\\legacy.exe", "pkg", error), "writeShim", error);
+		check(!pathExists(batShimPath(paths, "legacy")) && pathExists(shimExePath(paths, "legacy")), "writeShim replaces own .bat");
+
+		const HANDLE link = CreateFileW(extendedPath(shimExePath(paths, "legacy")).c_str(), FILE_READ_ATTRIBUTES,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, 0, NULL);
+		BY_HANDLE_FILE_INFORMATION info = {};
+		const bool linked = link != INVALID_HANDLE_VALUE && GetFileInformationByHandle(link, &info) && info.nNumberOfLinks == 2;
+		if (link != INVALID_HANDLE_VALUE) {
+			CloseHandle(link);
+		}
+		check(linked, "the command is a hard link to .shim.exe");
+
+		std::string text;
+		std::vector<uint8_t> bytes;
+		bool tooLarge = false;
+		readWholeFile(shimFilePath(paths, "legacy"), 4096, bytes, tooLarge);
+		check(std::string(bytes.begin(), bytes.end()) == formatShimFile("..\\apps\\pkg\\2\\legacy.exe", "pkg"), "writeShim: .shim content");
+
+		check(removeShim(paths, "legacy", "pkg", error) && !pathExists(shimExePath(paths, "legacy")) &&
+			!pathExists(shimFilePath(paths, "legacy")) && pathExists(shimReferencePath(paths)), "removeShim", error);
+		check(!removeShim(paths, "other", "pkg", error) && pathExists(batShimPath(paths, "other")), "removeShim leaves another package's .bat", error);
+		check(!removeShim(paths, "lonely", "pkg", error) && pathExists(shimExePath(paths, "lonely")), "removeShim leaves a foreign .exe", error);
+		check(removeShim(paths, "absent", "pkg", error), "removeShim on a missing command");
+
+		// tmp\ — перенесённые туда занятые прослойки; чистится целиком.
+		createDirectory(paths.tmp);
+		writeText(paths.tmp + "\\shim-1-2-3.exe", "MZ");
+		cleanTemporary(paths);
+		std::vector<DirEntry> left;
+		check(listDirectory(extendedPath(paths.tmp), left) && left.empty(), "cleanTemporary");
 		check(removeTree(root + "\\home") && !pathExists(root + "\\home"), "removeTree removes the surrogate name too");
 	}
 }

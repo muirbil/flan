@@ -1,0 +1,6 @@
+// flan.exe resources (DESIGN.md 7.4): the reference shim.exe of the same platform and
+// configuration. bin\$(Platform)\$(Configuration) is on the RC include path, so "shim.exe"
+// is the file that the shim project has just built.
+#include "flan/resource.h"
+
+IDR_SHIM RCDATA "shim.exe"

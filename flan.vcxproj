@@ -155,7 +155,21 @@
       <IgnoreSpecificDefaultLibraries>libucrt.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
     </Link>
   </ItemDefinitionGroup>
+  <ItemDefinitionGroup>
+    <ResourceCompile>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)bin\$(Platform)\$(Configuration);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
   <ItemGroup>
+    <ResourceCompile Include="src\cli\flan.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="shim\shim.vcxproj">
+      <Project>{E1DDDA1C-4BB7-4038-B693-1FC9292F6FEF}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemGroup>  <ItemGroup>
     <ClCompile Include="src\cli\main.cpp" />
     <ClCompile Include="src\core\index.cpp" />
     <ClCompile Include="src\core\index_state.cpp" />
@@ -188,6 +202,7 @@
     <ClInclude Include="include\flan\hex.hpp" />
     <ClInclude Include="include\flan\http.hpp" />
     <ClInclude Include="include\flan\http_policy.hpp" />
+    <ClInclude Include="include\flan\resource.h" />
     <ClInclude Include="include\flan\index.hpp" />
     <ClInclude Include="include\flan\inflate.hpp" />
     <ClInclude Include="include\flan\sha256.hpp" />

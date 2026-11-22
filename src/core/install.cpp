@@ -362,8 +362,9 @@ ExitCode uninstallPackage(const FlanPaths& paths, const std::string& requestedNa
 	// 1. Прослойки — по строке владельца, а не по квитанции: так uninstall работает
 	//    и с повреждённой квитанцией, а чужие прослойки не трогает никогда.
 	for (const std::string& command : commands) {
-		if (!deleteFile(shimPath(paths, command))) {
-			con::err << "Warning: cannot remove " << shimPath(paths, command) << "." << con::endl;
+		std::string shimError;
+		if (!removeShim(paths, command, name, shimError)) {
+			con::err << "Warning: " << shimError << "." << con::endl;
 		}
 	}
 
@@ -452,8 +453,13 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 		const ShimOwner shim = readShimOwner(paths, command, owner);
 
 		if (shim == ShimOwner::Foreign) {
-			con::err << "Error: " << shimPath(paths, command) << " exists and was not created by flan. "
-				<< "Remove it to install " << name << "." << con::endl;
+			if (toLowerAscii(command) == "flan") {
+				con::err << "Error: " << name << " has a command named 'flan', the name of flan itself." << con::endl;
+			}
+			else {
+				con::err << "Error: command '" << command << "' is taken in " << paths.bin << " by a file not created by flan ("
+					<< command << ".exe, .shim or .bat). Remove it to install " << name << "." << con::endl;
+			}
 			return ExitCode::Error;
 		}
 		if (shim == ShimOwner::Package && owner != name) {
@@ -551,8 +557,10 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 	// Шаг 7: прослойки, затем — команды прежней версии, которых в новой больше нет.
 	for (const std::string& bin : entry.bins) {
 		const std::string command = commandNameFromBin(bin);
-		if (!writeShim(paths, command, versionDir + "\\" + bin, name)) {
-			con::err << "Error: cannot write " << shimPath(paths, command) << "." << con::endl;
+		// Путь — относительно bin\ (§7.4): перенос FLAN_HOME ничего не ломает.
+		const std::string target = "..\\apps\\" + name + "\\" + dir + "\\" + bin;
+		if (!writeShim(paths, command, target, name, error)) {
+			con::err << "Error: " << error << "." << con::endl;
 			return ExitCode::Error;
 		}
 	}
@@ -567,8 +575,10 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 			}
 
 			std::string owner;
-			if (!kept && readShimOwner(paths, command, owner) == ShimOwner::Package && owner == name) {
-				deleteFile(shimPath(paths, command));
+			std::string shimError;
+			if (!kept && readShimOwner(paths, command, owner) == ShimOwner::Package && owner == name &&
+				!removeShim(paths, command, name, shimError)) {
+				con::err << "Warning: " << shimError << "." << con::endl;
 			}
 		}
 	}

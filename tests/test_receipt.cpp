@@ -145,27 +145,37 @@ void runReceiptTests() {
 
 	beginSuite("shim");
 	{
-		const std::string text = formatShim("C:\\Users\\me\\.flan\\apps\\ripgrep\\15.2.0\\rg.exe", "ripgrep");
-		check(text == "@echo off\r\nrem package=ripgrep\r\n"
-			"\"C:\\Users\\me\\.flan\\apps\\ripgrep\\15.2.0\\rg.exe\" %* & call exit /b %%errorlevel%%\r\n",
-			"exact content");
+		// .shim (DESIGN.md §7.4): target относительно bin\, владелец — package=.
+		const std::string text = formatShimFile("..\\apps\\ripgrep\\15.2.0\\rg.exe", "ripgrep");
+		check(text == "target=..\\apps\\ripgrep\\15.2.0\\rg.exe\npackage=ripgrep\n", "exact .shim content");
 
-		std::string owner;
-		check(parseShimOwner(text, owner) == ShimOwner::Package && owner == "ripgrep", "owner of own shim");
+		std::string target;
+		std::string package;
+		check(parseShimFile(text, target, package) && target == "..\\apps\\ripgrep\\15.2.0\\rg.exe" && package == "ripgrep",
+			".shim round trip");
+		check(parseShimFile("package=fd\r\ntarget=..\\apps\\fd\\1\\fd.exe\r\nfuture=1\r\n", target, package) && package == "fd",
+			".shim: CRLF, any order, unknown keys");
+		check(!parseShimFile("target=..\\x.exe\n", target, package) && target.empty(), ".shim without package");
+		check(!parseShimFile("package=fd\n", target, package), ".shim without target");
+		check(!parseShimFile("target=\npackage=fd\n", target, package), ".shim with an empty target");
+		check(!parseShimFile("target=x.exe\npackage=..\\evil\n", target, package), ".shim with an unsafe owner");
+		check(!parseShimFile("target=x.exe\npackage=RipGrep\n", target, package), ".shim with an uppercase owner");
+		check(!parseShimFile("", target, package), "empty .shim");
 	}
-	check(formatShim("C:\\Users\\50%off\\a.exe", "a").find("\"C:\\Users\\50%%off\\a.exe\"") != std::string::npos,
-		"percent sign escaped");
 	{
+		// .bat этапов 1–2 — только чтение (переход).
 		std::string owner;
-		check(parseShimOwner("@echo off\nrem package=fd\n\"x.exe\" %*\n", owner) == ShimOwner::Package && owner == "fd",
+		check(parseBatOwner("@echo off\r\nrem package=ripgrep\r\n\"C:\\x\\rg.exe\" %* & call exit /b %%errorlevel%%\r\n", owner) ==
+			ShimOwner::Package && owner == "ripgrep", "owner of a stage 1-2 .bat");
+		check(parseBatOwner("@echo off\nrem package=fd\n\"x.exe\" %*\n", owner) == ShimOwner::Package && owner == "fd",
 			"LF line endings");
-		check(parseShimOwner("@ECHO OFF\r\nrem package=fd\r\n", owner) == ShimOwner::Package, "@ECHO OFF in upper case");
-		check(parseShimOwner("@echo off\r\n\"C:\\x\\rg.exe\" %*\r\n", owner) == ShimOwner::Foreign,
+		check(parseBatOwner("@ECHO OFF\r\nrem package=fd\r\n", owner) == ShimOwner::Package, "@ECHO OFF in upper case");
+		check(parseBatOwner("@echo off\r\n\"C:\\x\\rg.exe\" %*\r\n", owner) == ShimOwner::Foreign,
 			"old flan shim without owner line is foreign");
-		check(parseShimOwner("", owner) == ShimOwner::Foreign, "empty file is foreign");
-		check(parseShimOwner("@echo off\r\nrem package=..\\evil\r\n", owner) == ShimOwner::Foreign && owner.empty(),
+		check(parseBatOwner("", owner) == ShimOwner::Foreign, "empty file is foreign");
+		check(parseBatOwner("@echo off\r\nrem package=..\\evil\r\n", owner) == ShimOwner::Foreign && owner.empty(),
 			"unsafe owner name is foreign");
-		check(parseShimOwner("@echo off\r\nrem package=RipGrep\r\n", owner) == ShimOwner::Foreign, "uppercase owner is foreign");
-		check(parseShimOwner("echo hi\r\nrem package=fd\r\n", owner) == ShimOwner::Foreign, "user script is foreign");
+		check(parseBatOwner("@echo off\r\nrem package=RipGrep\r\n", owner) == ShimOwner::Foreign, "uppercase owner is foreign");
+		check(parseBatOwner("echo hi\r\nrem package=fd\r\n", owner) == ShimOwner::Foreign, "user script is foreign");
 	}
 }
