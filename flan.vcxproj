@@ -160,6 +160,7 @@
     <ClCompile Include="src\io\console.cpp" />
     <ClCompile Include="src\io\fs.cpp" />
     <ClCompile Include="src\io\inflate.cpp" />
+    <ClCompile Include="src\io\zip.cpp" />
     <ClCompile Include="src\io\miniz_inflate.c" />
     <ClCompile Include="src\net\http.cpp" />
     <ClCompile Include="src\net\http_policy.cpp" />
@@ -184,6 +185,7 @@
     <ClInclude Include="include\flan\sha256.hpp" />
     <ClInclude Include="include\flan\strings.hpp" />
     <ClInclude Include="include\flan\validate.hpp" />
+    <ClInclude Include="include\flan\zip.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -40,6 +40,7 @@ int main(int argc, char* argv[]) {
 	runHttpTests();
 	runFsTests();
 	runConsoleTests();
+	runZipTests();
 
 	// Разрядность в выводе: переполнения смещений проверяются осмысленно только в 32 битах.
 	std::printf("%d passed, %d failed (%d-bit)\n", passed, failed, (int)(sizeof(void*) * 8));

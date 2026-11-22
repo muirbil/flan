@@ -7,8 +7,8 @@
 #include "flan/http.hpp"
 #include "flan/sha256.hpp"
 #include "flan/validate.hpp"
+#include "flan/zip.hpp"
 #include <fstream>
-#include <set>
 
 bool downloadToCache(const std::string& url, const fs::path& cacheDir, CachedArchive& out, std::string& error) {
 	std::error_code ec;
@@ -93,58 +93,32 @@ bool verifyPackageContents(const std::string& archivePath, const ArchTarget& tar
 		return verifyExecutable(archivePath, target.arch, error);
 	}
 
-	std::vector<std::string> entries;
-	if (!listArchive(archivePath, entries)) {
-		error = "cannot list the archive";
+	// Тот же zip.cpp, что у клиента (DESIGN.md §8): все запреты §7.3, в том числе предел
+	// распакованного размера (§5.3), — уже в open.
+	ZipArchive archive;
+	if (!archive.open(archivePath, error)) {
 		return false;
 	}
 
-	// Имена в zip — с '/', а сравниваем без учёта регистра: так их потом увидит
-	// файловая система Windows после распаковки.
-	auto normalize = [](std::string name) {
-		for (char& c : name) {
-			if (c == '\\') c = '/';
-		}
-		if (name.compare(0, 2, "./") == 0) {
-			name.erase(0, 2);
-		}
-		return toLowerAscii(name);
-	};
-
-	std::set<std::string> files;
-	std::vector<std::string> all;
-	for (const std::string& entry : entries) {
-		const std::string name = normalize(entry);
-		all.push_back(name);
-		if (!name.empty() && name.back() != '/') {
-			files.insert(name);
-		}
+	// В zip может не быть отдельных записей для каталогов, поэтому extract_dir ищется
+	// и как префикс любого имени. Сравнение — без учёта регистра, как его увидит NTFS.
+	if (!target.extractDir.empty() && !zipHasDirectory(archive.entries(), target.extractDir)) {
+		error = "extract_dir '" + target.extractDir + "' is not in the archive";
+		return false;
 	}
 
-	// В zip может не быть отдельных записей для каталогов, поэтому extract_dir ищется
-	// как префикс любого имени, а не как собственная запись.
-	std::string prefix;
-	if (!target.extractDir.empty()) {
-		prefix = normalize(target.extractDir) + "/";
-
-		bool found = false;
-		for (const std::string& name : all) {
-			if (name.compare(0, prefix.size(), prefix) == 0) {
-				found = true;
-				break;
-			}
-		}
-
-		if (!found) {
-			error = "extract_dir '" + target.extractDir + "' is not in the archive";
+	const std::string prefix = target.extractDir.empty() ? std::string() : target.extractDir + "\\";
+	for (const std::string& bin : bins) {
+		if (findZipFile(archive.entries(), prefix + bin) == nullptr) {
+			error = "bin '" + bin + "' is not a file in the archive (looked for '" + prefix + bin + "')";
 			return false;
 		}
 	}
 
-	for (const std::string& bin : bins) {
-		const std::string wanted = prefix + normalize(bin);
-		if (files.count(wanted) == 0) {
-			error = "bin '" + bin + "' is not a file in the archive (looked for '" + wanted + "')";
+	// Каждая запись распаковывается вхолостую: битый поток или CRC клиент увидел бы
+	// только при установке, а генератор обязан отвергнуть такой архив до публикации.
+	for (const ZipEntry& entry : archive.entries()) {
+		if (!archive.readEntry(entry, nullptr, error)) {
 			return false;
 		}
 	}

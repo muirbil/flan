@@ -154,6 +154,7 @@
     <ClCompile Include="test_index.cpp" />
     <ClCompile Include="test_receipt.cpp" />
     <ClCompile Include="test_validate.cpp" />
+    <ClCompile Include="test_zip.cpp" />
     <!-- Тестируемый код: разбор индекса, квитанции и прослойки клиента, писатель генератора -->
     <ClCompile Include="..\src\core\index.cpp" />
     <ClCompile Include="..\src\core\index_state.cpp" />
@@ -163,6 +164,7 @@
     <ClCompile Include="..\src\io\console.cpp" />
     <ClCompile Include="..\src\io\fs.cpp" />
     <ClCompile Include="..\src\io\inflate.cpp" />
+    <ClCompile Include="..\src\io\zip.cpp" />
     <ClCompile Include="..\src\net\http_policy.cpp" />
     <ClCompile Include="..\tools\flan-build\miniz_full.c" />
     <ClCompile Include="..\tools\flan-build\pe.cpp" />
