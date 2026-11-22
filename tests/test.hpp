@@ -17,3 +17,4 @@ void runReceiptTests();
 void runCryptoTests();
 void runHttpTests();
 void runFsTests();
+void runConsoleTests();

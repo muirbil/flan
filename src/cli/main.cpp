@@ -2,7 +2,7 @@
 #define NOMINMAX
 
 #include <Windows.h>
-#include <iostream>
+#include "flan/console.hpp"
 #include <string>
 #include <vector>
 #include "flan/fs.hpp"
@@ -21,13 +21,13 @@
 namespace {
 
 	void printUsage() {
-		std::cout << "Usage: flan <command> [options]" << std::endl;
-		std::cout << "Commands:" << std::endl;
-		std::cout << "  sync                  update the package index" << std::endl;
-		std::cout << "  list                  available packages" << std::endl;
-		std::cout << "  install <package>     install or update a package" << std::endl;
-		std::cout << "  uninstall <package>   remove a package" << std::endl;
-		std::cout << "  installed             installed packages" << std::endl;
+		con::out << "Usage: flan <command> [options]" << con::endl;
+		con::out << "Commands:" << con::endl;
+		con::out << "  sync                  update the package index" << con::endl;
+		con::out << "  list                  available packages" << con::endl;
+		con::out << "  install <package>     install or update a package" << con::endl;
+		con::out << "  uninstall <package>   remove a package" << con::endl;
+		con::out << "  installed             installed packages" << con::endl;
 	}
 
 	// До этапа 5 list показывает доступные пакеты, а установленные — installed (DESIGN.md §7.7).
@@ -35,11 +35,11 @@ namespace {
 		IndexView index;
 		std::string error;
 		if (!loadLocalIndex(paths, index, error)) {
-			std::cerr << "Error: " << error << "." << std::endl;
+			con::err << "Error: " << error << "." << con::endl;
 			return ExitCode::Error;
 		}
 
-		std::cout << "Available packages (index generated " << formatUnixTime(index.generatedAt()) << "):" << std::endl;
+		con::out << "Available packages (index generated " << formatUnixTime(index.generatedAt()) << "):" << con::endl;
 
 		// Записи отсортированы по (name, arch): сборки одного пакета идут подряд.
 		IndexRecord current;
@@ -47,16 +47,16 @@ namespace {
 		for (uint32_t i = 0; i <= index.count(); i++) {
 			IndexRecord record;
 			if (i < index.count() && !index.record(i, record, error)) {
-				std::cerr << "Error: the local index is corrupted (" << error << "). Run 'flan sync' to fetch it again." << std::endl;
+				con::err << "Error: the local index is corrupted (" << error << "). Run 'flan sync' to fetch it again." << con::endl;
 				return ExitCode::Integrity;
 			}
 
 			if (i > 0 && (i == index.count() || record.name != current.name)) {
-				std::cout << "  " << current.name << "  " << current.version << "  [" << archs << "]";
+				con::out << "  " << current.name << "  " << current.version << "  [" << archs << "]";
 				if (!current.description.empty()) {
-					std::cout << "  " << current.description;
+					con::out << "  " << current.description;
 				}
-				std::cout << std::endl;
+				con::out << con::endl;
 				archs.clear();
 			}
 
@@ -67,7 +67,7 @@ namespace {
 		}
 
 		if (index.count() == 0) {
-			std::cout << "  (none)" << std::endl;
+			con::out << "  (none)" << con::endl;
 		}
 		return ExitCode::Ok;
 	}
@@ -77,28 +77,29 @@ namespace {
 		const std::vector<Receipt> receipts = listReceipts(paths, problems);
 
 		for (const std::string& problem : problems) {
-			std::cerr << "Warning: " << problem << "." << std::endl;
+			con::err << "Warning: " << problem << "." << con::endl;
 		}
 
 		if (receipts.empty()) {
-			std::cout << "No packages installed yet." << std::endl;
+			con::out << "No packages installed yet." << con::endl;
 			return ExitCode::Ok;
 		}
 
-		std::cout << "Installed packages:" << std::endl;
+		con::out << "Installed packages:" << con::endl;
 		for (const Receipt& receipt : receipts) {
 			std::string commands;
 			for (const std::string& bin : receipt.bins) {
 				commands += (commands.empty() ? "" : ", ") + commandNameFromBin(bin);
 			}
-			std::cout << "  " << receipt.name << "  " << receipt.version << "  [" << archName(receipt.arch) << "]  " << commands << std::endl;
+			con::out << "  " << receipt.name << "  " << receipt.version << "  [" << archName(receipt.arch) << "]  " << commands << con::endl;
 		}
 		return ExitCode::Ok;
 	}
 }
 
 int wmain(int argc, wchar_t* argv[]) {
-	SetConsoleOutputCP(CP_UTF8);
+	// Кодовая страница консоли не меняется: вывод идёт через WriteConsoleW (DESIGN.md §7.10),
+	// а SetConsoleOutputCP оставлял бы её изменённой и после выхода flan.
 
 	if (argc < 2) {
 		printUsage();
@@ -111,7 +112,7 @@ int wmain(int argc, wchar_t* argv[]) {
 	for (int i = 0; i < argc; i++) {
 		std::string arg;
 		if (!toUtf8(argv[i], arg)) {
-			std::cerr << "Error: argument " << i << " is not valid Unicode." << std::endl;
+			con::err << "Error: argument " << i << " is not valid Unicode." << con::endl;
 			return exitWith(ExitCode::Usage);
 		}
 		args.push_back(arg);
@@ -122,14 +123,14 @@ int wmain(int argc, wchar_t* argv[]) {
 	const bool knownCommand = command == "sync" || command == "list" || command == "install" ||
 		command == "uninstall" || command == "installed";
 	if (!knownCommand) {
-		std::cerr << "Unknown command: " << command << std::endl;
+		con::err << "Unknown command: " << command << con::endl;
 		printUsage();
 		return exitWith(ExitCode::Usage);
 	}
 
 	if ((command == "install" || command == "uninstall") && argc < 3) {
-		std::cerr << "Error: specify a package." << std::endl;
-		std::cerr << "Usage: flan " << command << " <package>" << std::endl;
+		con::err << "Error: specify a package." << con::endl;
+		con::err << "Usage: flan " << command << " <package>" << con::endl;
 		return exitWith(ExitCode::Usage);
 	}
 
@@ -138,7 +139,7 @@ int wmain(int argc, wchar_t* argv[]) {
 	std::string userDir;
 	std::string error;
 	if (!resolveFlanHome(userDir, error)) {
-		std::cerr << "Fatal: " << error << "." << std::endl;
+		con::err << "Fatal: " << error << "." << con::endl;
 		return exitWith(ExitCode::Error);
 	}
 
@@ -147,7 +148,7 @@ int wmain(int argc, wchar_t* argv[]) {
 	// Раскладка DESIGN.md §7.1.
 	if (!createDirectory(paths.apps) || !createDirectory(paths.bin) || !createDirectory(paths.cache) ||
 		!createDirectory(paths.state) || !createDirectory(paths.tmp)) {
-		std::cerr << "Fatal: could not create the flan directories under " << userDir << std::endl;
+		con::err << "Fatal: could not create the flan directories under " << userDir << con::endl;
 		return exitWith(ExitCode::Error);
 	}
 
@@ -159,8 +160,8 @@ int wmain(int argc, wchar_t* argv[]) {
 		case FlanLock::Result::Acquired:
 			break;
 		case FlanLock::Result::Busy:
-			std::cerr << "Error: another flan process is running (" << paths.lock << " is held for more than "
-				<< (LOCK_TIMEOUT_MS / 1000) << " seconds)." << std::endl;
+			con::err << "Error: another flan process is running (" << paths.lock << " is held for more than "
+				<< (LOCK_TIMEOUT_MS / 1000) << " seconds)." << con::endl;
 			return exitWith(ExitCode::Locked);
 		case FlanLock::Result::Failed:
 			return exitWith(ExitCode::Error);

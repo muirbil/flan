@@ -157,6 +157,7 @@
     <ClCompile Include="src\core\shim.cpp" />
     <ClCompile Include="src\core\sync.cpp" />
     <ClCompile Include="src\crypto\sha256.cpp" />
+    <ClCompile Include="src\io\console.cpp" />
     <ClCompile Include="src\io\fs.cpp" />
     <ClCompile Include="src\io\inflate.cpp" />
     <ClCompile Include="src\io\miniz_inflate.c" />
@@ -172,6 +173,7 @@
     <ClInclude Include="src\core\receipt.hpp" />
     <ClInclude Include="src\core\shim.hpp" />
     <ClInclude Include="src\core\sync.hpp" />
+    <ClInclude Include="include\flan\console.hpp" />
     <ClInclude Include="include\flan\format.hpp" />
     <ClInclude Include="include\flan\fs.hpp" />
     <ClInclude Include="include\flan\hex.hpp" />

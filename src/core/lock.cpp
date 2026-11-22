@@ -4,7 +4,7 @@
 #include <windows.h>
 #include "core/lock.hpp"
 #include "flan/fs.hpp"
-#include <iostream>
+#include "flan/console.hpp"
 
 namespace {
 	constexpr DWORD RETRY_INTERVAL_MS = 200;
@@ -36,13 +36,13 @@ FlanLock::Result FlanLock::acquire(const std::string& path, unsigned timeoutMs) 
 
 		const DWORD error = GetLastError();
 		if (error == ERROR_ACCESS_DENIED) {
-			std::cerr << "Error: access denied to the lock file " << path
-				<< ". Check the permissions and the read-only attribute of this file and its folder." << std::endl;
+			con::err << "Error: access denied to the lock file " << path
+				<< ". Check the permissions and the read-only attribute of this file and its folder." << con::endl;
 			return Result::Failed;
 		}
 
 		if (error != ERROR_SHARING_VIOLATION) {
-			std::cerr << "Error: cannot open the lock file " << path << " (code " << error << ")." << std::endl;
+			con::err << "Error: cannot open the lock file " << path << " (code " << error << ")." << con::endl;
 			return Result::Failed;
 		}
 
@@ -51,7 +51,7 @@ FlanLock::Result FlanLock::acquire(const std::string& path, unsigned timeoutMs) 
 		}
 
 		if (!announced) {
-			std::cerr << "Waiting for another flan process to finish..." << std::endl;
+			con::err << "Waiting for another flan process to finish..." << con::endl;
 			announced = true;
 		}
 

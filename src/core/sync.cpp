@@ -9,7 +9,7 @@
 #include "flan/strings.hpp"
 #include "flan/validate.hpp"
 #include <ctime>
-#include <iostream>
+#include "flan/console.hpp"
 #include <set>
 #include <vector>
 
@@ -81,7 +81,7 @@ ExitCode syncIndex(const FlanPaths& paths) {
 	IndexSource source;
 	std::string error;
 	if (!resolveIndexSource(source, error)) {
-		std::cerr << "Error: " << error << "." << std::endl;
+		con::err << "Error: " << error << "." << con::endl;
 		return ExitCode::Usage;
 	}
 
@@ -97,9 +97,9 @@ ExitCode syncIndex(const FlanPaths& paths) {
 
 	if (source.local) {
 		// Локальный FLAN_REPO копируется всегда: это дёшево (§7.2).
-		std::cout << "Copying index from " << source.location << std::endl;
+		con::out << "Copying index from " << source.location << con::endl;
 		if (!copyFile(source.location, candidate, true)) {
-			std::cerr << "Error: cannot copy " << source.location << " (code " << GetLastError() << ")." << std::endl;
+			con::err << "Error: cannot copy " << source.location << " (code " << GetLastError() << ")." << con::endl;
 			return ExitCode::Error;
 		}
 	}
@@ -119,32 +119,32 @@ ExitCode syncIndex(const FlanPaths& paths) {
 			request.ifNoneMatch = previous.etag;
 		}
 
-		std::cout << (request.ifNoneMatch.empty() ? "Downloading" : "Checking") << " index at " << source.location << std::endl;
+		con::out << (request.ifNoneMatch.empty() ? "Downloading" : "Checking") << " index at " << source.location << con::endl;
 		const HttpResult result = httpGet(request);
 
 		switch (result.outcome) {
 		case HttpOutcome::NotModified:
 			deleteFile(candidate);
-			std::cout << "Index is up to date (304 Not Modified, " << result.bodyBytes << " bytes of body)." << std::endl;
+			con::out << "Index is up to date (304 Not Modified, " << result.bodyBytes << " bytes of body)." << con::endl;
 			return ExitCode::Ok;
 		case HttpOutcome::Ok:
 			break;
 		case HttpOutcome::SizeMismatch:
 			deleteFile(candidate);
-			std::cerr << "Error: the index is larger than " << (MAX_INDEX_FILE_SIZE / (1024 * 1024))
-				<< " MB. The current index is kept." << std::endl;
+			con::err << "Error: the index is larger than " << (MAX_INDEX_FILE_SIZE / (1024 * 1024))
+				<< " MB. The current index is kept." << con::endl;
 			return ExitCode::Integrity;
 		case HttpOutcome::LocalError:
 			deleteFile(candidate);
-			std::cerr << "Error: " << result.error << "." << std::endl;
+			con::err << "Error: " << result.error << "." << con::endl;
 			return ExitCode::Error;
 		case HttpOutcome::NetworkError:
 			deleteFile(candidate);
-			std::cerr << "Error: failed to download the index: " << result.error << ". Check your internet connection." << std::endl;
+			con::err << "Error: failed to download the index: " << result.error << ". Check your internet connection." << con::endl;
 			return ExitCode::Network;
 		default:
 			deleteFile(candidate);
-			std::cerr << "Error: failed to download the index: " << result.error << "." << std::endl;
+			con::err << "Error: failed to download the index: " << result.error << "." << con::endl;
 			return ExitCode::Network;
 		}
 
@@ -157,11 +157,11 @@ ExitCode syncIndex(const FlanPaths& paths) {
 	if (!readWholeFile(candidate, MAX_INDEX_FILE_SIZE, file, tooLarge)) {
 		deleteFile(candidate);
 		if (tooLarge) {
-			std::cerr << "Error: the index is larger than " << (MAX_INDEX_FILE_SIZE / (1024 * 1024))
-				<< " MB. The current index is kept." << std::endl;
+			con::err << "Error: the index is larger than " << (MAX_INDEX_FILE_SIZE / (1024 * 1024))
+				<< " MB. The current index is kept." << con::endl;
 			return ExitCode::Integrity;
 		}
-		std::cerr << "Error: cannot read the received index." << std::endl;
+		con::err << "Error: cannot read the received index." << con::endl;
 		return ExitCode::Error;
 	}
 
@@ -170,12 +170,12 @@ ExitCode syncIndex(const FlanPaths& paths) {
 	IndexView view;
 	if (!view.open(std::move(file), error) || !view.validateAll(error)) {
 		deleteFile(candidate);
-		std::cerr << "Error: the received index is rejected: " << error << ". The current index is kept." << std::endl;
+		con::err << "Error: the received index is rejected: " << error << ". The current index is kept." << con::endl;
 		return ExitCode::Integrity;
 	}
 
 	if (!replaceFile(candidate, target)) {
-		std::cerr << "Error: cannot replace " << target << " (code " << GetLastError() << ")." << std::endl;
+		con::err << "Error: cannot replace " << target << " (code " << GetLastError() << ")." << con::endl;
 		deleteFile(candidate);
 		return ExitCode::Error;
 	}
@@ -191,15 +191,15 @@ ExitCode syncIndex(const FlanPaths& paths) {
 	// Состояние пишется после принятия индекса: ETag всегда описывает тот файл, что лежит в state\.
 	accepted.generatedAt = view.generatedAt();
 	if (!saveIndexState(paths, accepted)) {
-		std::cerr << "Warning: cannot write " << paths.state << "\\index.state; the next sync will download the index in full." << std::endl;
+		con::err << "Warning: cannot write " << paths.state << "\\index.state; the next sync will download the index in full." << con::endl;
 	}
 
-	std::cout << "Index updated: " << packages.size() << " package(s), " << view.count() << " build(s), generated "
+	con::out << "Index updated: " << packages.size() << " package(s), " << view.count() << " build(s), generated "
 		<< formatUnixTime(view.generatedAt());
 	if (!source.local) {
-		std::cout << "; " << received << " bytes downloaded";
+		con::out << "; " << received << " bytes downloaded";
 	}
-	std::cout << "." << std::endl;
+	con::out << "." << con::endl;
 	return ExitCode::Ok;
 }
 

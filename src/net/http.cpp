@@ -5,7 +5,7 @@
 #include <winhttp.h>
 #include <cstdint>
 #include <cstdlib>
-#include <iostream>
+#include "flan/console.hpp"
 #include <string>
 #include <vector>
 #include "flan/fs.hpp"
@@ -127,13 +127,13 @@ namespace {
                     std::to_string(shown * 100 / total_) + "% ";
             }
             line += std::to_string(done / 1024) + (total_ > 0 ? " / " + std::to_string(total_ / 1024) : "") + " KB  ";
-            std::cout << line << std::flush;
+            con::out << line << con::flush;
         }
 
         // Перед сообщением посреди загрузки: закончить строку полосы, если она нарисована.
         void interrupt() {
             if (console_ && drawn_) {
-                std::cout << std::endl;
+                con::out << con::endl;
                 drawn_ = false;
             }
         }
@@ -141,11 +141,11 @@ namespace {
         void finish(uint64_t done, uint64_t received) {
             if (console_) {
                 if (drawn_) {
-                    std::cout << std::endl;
+                    con::out << con::endl;
                 }
             }
             else if (received > 0) {
-                std::cout << "  downloaded " << (received / 1024) << " KB" << std::endl;
+                con::out << "  downloaded " << (received / 1024) << " KB" << con::endl;
             }
             (void)done;
         }
@@ -448,7 +448,7 @@ HttpResult httpGet(const HttpRequest& request) {
                     if (dropAfter != 0 && !dropped && result.bodyBytes >= dropAfter) {
                         dropped = true;
                         progress.interrupt();
-                        std::cerr << "  [debug] dropping the connection after " << result.bodyBytes << " bytes" << std::endl;
+                        con::err << "  [debug] dropping the connection after " << result.bodyBytes << " bytes" << con::endl;
                         retryReason = describeNetworkError(ERROR_WINHTTP_CONNECTION_ERROR);
                         broken = true;
                         break;
@@ -483,8 +483,8 @@ HttpResult httpGet(const HttpRequest& request) {
         const unsigned delay = retryDelaySeconds(retries, retryAfter);
         retries++;
         progress.interrupt();
-        std::cerr << "  " << retryReason << "; retrying in " << delay << " s (attempt "
-            << (retries + 1) << " of " << (MAX_RETRIES + 1) << ")" << std::endl;
+        con::err << "  " << retryReason << "; retrying in " << delay << " s (attempt "
+            << (retries + 1) << " of " << (MAX_RETRIES + 1) << ")" << con::endl;
         Sleep(delay * 1000);
     }
 }
@@ -500,13 +500,13 @@ bool downloadFile(const std::string& url, const std::string& destination) {
 
     const HttpResult result = httpGet(request);
     if (result.outcome != HttpOutcome::Ok) {
-        std::cerr << "Error: " << result.error << "." << std::endl;
+        con::err << "Error: " << result.error << "." << con::endl;
         deleteFile(partial);
         return false;
     }
 
     if (!moveFile(partial, destination, true)) {
-        std::cerr << "Error: failed to finalize " << destination << " (code " << GetLastError() << ")." << std::endl;
+        con::err << "Error: failed to finalize " << destination << " (code " << GetLastError() << ")." << con::endl;
         deleteFile(partial);
         return false;
     }

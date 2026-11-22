@@ -12,7 +12,7 @@
 #include "flan/index.hpp"
 #include "flan/sha256.hpp"
 #include "flan/validate.hpp"
-#include <iostream>
+#include "flan/console.hpp"
 #include <vector>
 
 namespace {
@@ -236,7 +236,7 @@ namespace {
 		uint64_t size = 0;
 		if (fileSize(archive, size)) {
 			if (size == entry.archiveSize && crypto::calculateSHA256(archive) == sha256) {
-				std::cout << "Using the cached archive of " << label << "." << std::endl;
+				con::out << "Using the cached archive of " << label << "." << con::endl;
 				return ExitCode::Ok;
 			}
 			deleteFile(archive);
@@ -259,8 +259,8 @@ namespace {
 			uint64_t freeBytes = 0;
 			const uint64_t needed = entry.archiveSize - have + FREE_SPACE_MARGIN;
 			if (freeDiskSpace(paths.cache, freeBytes) && freeBytes < needed) {
-				std::cerr << "Error: not enough disk space for " << label << ": " << formatSize(needed)
-					<< " needed, " << formatSize(freeBytes) << " free." << std::endl;
+				con::err << "Error: not enough disk space for " << label << ": " << formatSize(needed)
+					<< " needed, " << formatSize(freeBytes) << " free." << con::endl;
 				return ExitCode::Error;
 			}
 
@@ -268,15 +268,15 @@ namespace {
 			bool resumedAnywhere = resuming;					// с прошлого .part или после обрыва в этом запуске
 			if (have == entry.archiveSize) {
 				// Процесс убили после загрузки, до переименования: запрос не нужен, только хэш.
-				std::cout << "The download of " << label << " is already complete; verifying." << std::endl;
+				con::out << "The download of " << label << " is already complete; verifying." << con::endl;
 			}
 			else {
 				if (resuming) {
-					std::cout << "Resuming " << label << ": " << formatSize(entry.archiveSize - have) << " of "
-						<< formatSize(entry.archiveSize) << " left, from " << entry.url << std::endl;
+					con::out << "Resuming " << label << ": " << formatSize(entry.archiveSize - have) << " of "
+						<< formatSize(entry.archiveSize) << " left, from " << entry.url << con::endl;
 				}
 				else {
-					std::cout << "Downloading " << label << ": " << formatSize(entry.archiveSize) << " from " << entry.url << std::endl;
+					con::out << "Downloading " << label << ": " << formatSize(entry.archiveSize) << " from " << entry.url << con::endl;
 				}
 
 				HttpRequest request;
@@ -292,20 +292,20 @@ namespace {
 				case HttpOutcome::Ok:
 					resumedAnywhere = resumedAnywhere || result.resumed;
 					if (resuming || result.resumed) {
-						std::cout << "  received " << formatSize(result.bodyBytes) << " of " << formatSize(entry.archiveSize)
-							<< (result.resumed ? " (resumed)" : " (the server restarted the download)") << std::endl;
+						con::out << "  received " << formatSize(result.bodyBytes) << " of " << formatSize(entry.archiveSize)
+							<< (result.resumed ? " (resumed)" : " (the server restarted the download)") << con::endl;
 					}
 					break;
 				case HttpOutcome::SizeMismatch:
 					deleteFile(part);
-					std::cerr << "Error: " << label << ": " << result.error << "." << std::endl;
+					con::err << "Error: " << label << ": " << result.error << "." << con::endl;
 					return ExitCode::Integrity;
 				case HttpOutcome::LocalError:
-					std::cerr << "Error: " << result.error << "." << std::endl;
+					con::err << "Error: " << result.error << "." << con::endl;
 					return ExitCode::Error;
 				default:
 					// .part остаётся: следующий install продолжит с него.
-					std::cerr << "Error: failed to download " << label << ": " << result.error << "." << std::endl;
+					con::err << "Error: failed to download " << label << ": " << result.error << "." << con::endl;
 					return ExitCode::Network;
 				}
 			}
@@ -313,7 +313,7 @@ namespace {
 			const std::string actual = hasher.finishHex();
 			if (actual == sha256) {
 				if (!moveFile(part, archive, true)) {
-					std::cerr << "Error: cannot move the archive into " << archive << " (code " << GetLastError() << ")." << std::endl;
+					con::err << "Error: cannot move the archive into " << archive << " (code " << GetLastError() << ")." << con::endl;
 					return ExitCode::Error;
 				}
 				return ExitCode::Ok;
@@ -321,13 +321,13 @@ namespace {
 
 			deleteFile(part);
 			if (resumedAnywhere && pass == 0) {
-				std::cerr << "Warning: SHA-256 mismatch after resuming; downloading " << label << " again from scratch." << std::endl;
+				con::err << "Warning: SHA-256 mismatch after resuming; downloading " << label << " again from scratch." << con::endl;
 				continue;
 			}
 
-			std::cerr << "Error: SHA-256 mismatch for " << label << ". The file may be corrupted or tampered with." << std::endl;
-			std::cerr << "  expected: " << sha256 << std::endl;
-			std::cerr << "  actual:   " << actual << std::endl;
+			con::err << "Error: SHA-256 mismatch for " << label << ". The file may be corrupted or tampered with." << con::endl;
+			con::err << "  expected: " << sha256 << con::endl;
+			con::err << "  actual:   " << actual << con::endl;
 			return ExitCode::Integrity;
 		}
 
@@ -338,7 +338,7 @@ namespace {
 ExitCode uninstallPackage(const FlanPaths& paths, const std::string& requestedName) {
 	const std::string name = toLowerAscii(requestedName);
 	if (!isSafePackageName(name)) {
-		std::cerr << "Error: '" << requestedName << "' is not a valid package name." << std::endl;
+		con::err << "Error: '" << requestedName << "' is not a valid package name." << con::endl;
 		return ExitCode::Usage;
 	}
 
@@ -350,40 +350,40 @@ ExitCode uninstallPackage(const FlanPaths& paths, const std::string& requestedNa
 	const std::vector<std::string> commands = shimsOwnedBy(paths, name);
 
 	if (state == ReceiptState::Missing && !exists(appDir) && commands.empty()) {
-		std::cerr << "Error: package '" << name << "' is not installed." << std::endl;
+		con::err << "Error: package '" << name << "' is not installed." << con::endl;
 		return ExitCode::NotFound;
 	}
 
 	if (state == ReceiptState::Corrupt) {
-		std::cerr << "Warning: the receipt of " << name << " is corrupted (" << error << "); removing the package anyway." << std::endl;
+		con::err << "Warning: the receipt of " << name << " is corrupted (" << error << "); removing the package anyway." << con::endl;
 	}
 
 	// 1. Прослойки — по строке владельца, а не по квитанции: так uninstall работает
 	//    и с повреждённой квитанцией, а чужие прослойки не трогает никогда.
 	for (const std::string& command : commands) {
 		if (!deleteFile(shimPath(paths, command))) {
-			std::cerr << "Warning: cannot remove " << shimPath(paths, command) << "." << std::endl;
+			con::err << "Warning: cannot remove " << shimPath(paths, command) << "." << con::endl;
 		}
 	}
 
 	// 2. Квитанция: с этого момента пакет считается удалённым.
 	const std::string receiptFile = receiptPath(paths, name);
 	if (exists(receiptFile) && !deleteFile(receiptFile)) {
-		std::cerr << "Error: cannot remove " << receiptFile << " (code " << GetLastError() << ")." << std::endl;
+		con::err << "Error: cannot remove " << receiptFile << " (code " << GetLastError() << ")." << con::endl;
 		return ExitCode::Error;
 	}
 
 	// 3. Каталог целиком: все версии и остатки. Занят — остаётся нетронутым до следующего запуска.
 	if (!removeTreeIfUnused(appDir)) {
 		addPendingDelete(paths, name);
-		std::cout << "Note: " << appDir << " is in use; it will be removed on the next flan run." << std::endl;
+		con::out << "Note: " << appDir << " is in use; it will be removed on the next flan run." << con::endl;
 	}
 
-	std::cout << "Uninstalled " << name;
+	con::out << "Uninstalled " << name;
 	if (state == ReceiptState::Valid) {
-		std::cout << " " << receipt.version;
+		con::out << " " << receipt.version;
 	}
-	std::cout << "." << std::endl;
+	con::out << "." << con::endl;
 	return ExitCode::Ok;
 }
 
@@ -391,21 +391,21 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 	// Имена пакетов в индексе — строчные (DESIGN.md §5.2): "RipGrep" — тот же ripgrep.
 	const std::string name = toLowerAscii(requestedName);
 	if (!isSafePackageName(name)) {
-		std::cerr << "Error: '" << requestedName << "' is not a valid package name." << std::endl;
+		con::err << "Error: '" << requestedName << "' is not a valid package name." << con::endl;
 		return ExitCode::Usage;
 	}
 
 	IndexView index;
 	std::string error;
 	if (!loadLocalIndex(paths, index, error)) {
-		std::cerr << "Error: " << error << "." << std::endl;
+		con::err << "Error: " << error << "." << con::endl;
 		return ExitCode::Error;
 	}
 
 	// Шаг 1: запись для архитектуры ОС.
 	std::vector<uint8_t> archs;
 	if (!preferredArchitectures(archs, error)) {
-		std::cerr << "Error: " << error << "." << std::endl;
+		con::err << "Error: " << error << "." << con::endl;
 		return ExitCode::Error;
 	}
 
@@ -419,11 +419,11 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 	}
 
 	if (found == FindResult::Corrupt) {
-		std::cerr << "Error: the local index is corrupted (" << error << "). Run 'flan sync' to fetch it again." << std::endl;
+		con::err << "Error: the local index is corrupted (" << error << "). Run 'flan sync' to fetch it again." << con::endl;
 		return ExitCode::Integrity;
 	}
 	if (found == FindResult::NotFound) {
-		std::cerr << "Error: package '" << name << "' is not in the index for this architecture." << std::endl;
+		con::err << "Error: package '" << name << "' is not in the index for this architecture." << con::endl;
 		return ExitCode::NotFound;
 	}
 
@@ -434,11 +434,11 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 	Receipt old;
 	const ReceiptState receiptState = readReceipt(paths, name, old, error);
 	if (receiptState == ReceiptState::Valid && old.sha256 == sha256) {
-		std::cout << label << " is already installed." << std::endl;
+		con::out << label << " is already installed." << con::endl;
 		return ExitCode::Ok;
 	}
 	if (receiptState == ReceiptState::Corrupt) {
-		std::cerr << "Warning: the receipt of " << name << " is corrupted (" << error << "); installing anew." << std::endl;
+		con::err << "Warning: the receipt of " << name << " is corrupted (" << error << "); installing anew." << con::endl;
 	}
 
 	const bool upgrading = receiptState == ReceiptState::Valid;
@@ -451,12 +451,12 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 		const ShimOwner shim = readShimOwner(paths, command, owner);
 
 		if (shim == ShimOwner::Foreign) {
-			std::cerr << "Error: " << shimPath(paths, command) << " exists and was not created by flan. "
-				<< "Remove it to install " << name << "." << std::endl;
+			con::err << "Error: " << shimPath(paths, command) << " exists and was not created by flan. "
+				<< "Remove it to install " << name << "." << con::endl;
 			return ExitCode::Error;
 		}
 		if (shim == ShimOwner::Package && owner != name) {
-			std::cerr << "Error: command '" << command << "' already belongs to package '" << owner << "'." << std::endl;
+			con::err << "Error: command '" << command << "' already belongs to package '" << owner << "'." << con::endl;
 			return ExitCode::Error;
 		}
 	}
@@ -484,7 +484,7 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 			 : extractArchive(archive, staging));
 
 	if (!staged) {
-		std::cerr << "Error: failed to " << (exe ? "place" : "extract") << " " << name << "." << std::endl;
+		con::err << "Error: failed to " << (exe ? "place" : "extract") << " " << name << "." << con::endl;
 		removeTree(staging);
 		return ExitCode::Error;
 	}
@@ -497,14 +497,14 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 	// До этапа 3 tar.exe распаковывает архив целиком, а корень приложения — staging\<extract_dir>.
 	const std::string root = entry.extractDir.empty() ? staging : staging + "\\" + entry.extractDir;
 	if (!isDirectory(root)) {
-		std::cerr << "Error: the archive has no folder '" << entry.extractDir << "'." << std::endl;
+		con::err << "Error: the archive has no folder '" << entry.extractDir << "'." << con::endl;
 		return abort(ExitCode::Integrity);
 	}
 
 	// Шаг 5.
 	for (const std::string& bin : entry.bins) {
 		if (!isRegularFile(root + "\\" + bin)) {
-			std::cerr << "Error: the archive has no file '" << bin << "'." << std::endl;
+			con::err << "Error: the archive has no file '" << bin << "'." << con::endl;
 			return abort(ExitCode::Integrity);
 		}
 	}
@@ -512,13 +512,13 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 	// Шаг 6.
 	std::string dir;
 	if (!chooseVersionDir(appDir, entry.version, sha256, liveDir, dir, error)) {
-		std::cerr << "Error: " << error << "." << std::endl;
+		con::err << "Error: " << error << "." << con::endl;
 		return abort(ExitCode::Error);
 	}
 
 	const std::string versionDir = appDir + "\\" + dir;
 	if (!moveFile(root, versionDir, false)) {
-		std::cerr << "Error: cannot move the package into " << versionDir << " (code " << GetLastError() << ")." << std::endl;
+		con::err << "Error: cannot move the package into " << versionDir << " (code " << GetLastError() << ")." << con::endl;
 		return abort(ExitCode::Error);
 	}
 	removeTree(staging);								// всё, что было вне extract_dir
@@ -527,7 +527,7 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 	for (const std::string& bin : entry.bins) {
 		const std::string command = commandNameFromBin(bin);
 		if (!writeShim(paths, command, versionDir + "\\" + bin, name)) {
-			std::cerr << "Error: cannot write " << shimPath(paths, command) << "." << std::endl;
+			con::err << "Error: cannot write " << shimPath(paths, command) << "." << con::endl;
 			return ExitCode::Error;
 		}
 	}
@@ -559,7 +559,7 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 	receipt.installedAt = currentUtcTimestamp();
 
 	if (!writeReceipt(paths, receipt)) {
-		std::cerr << "Error: cannot write " << receiptPath(paths, name) << "." << std::endl;
+		con::err << "Error: cannot write " << receiptPath(paths, name) << "." << con::endl;
 		return ExitCode::Error;
 	}
 
@@ -571,7 +571,7 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 		const std::string oldDir = appDir + "\\" + old.dir;
 		if (!removeTreeIfUnused(oldDir)) {
 			addPendingDelete(paths, name + "\\" + old.dir);
-			std::cout << "Note: " << oldDir << " is in use; it will be removed on the next flan run." << std::endl;
+			con::out << "Note: " << oldDir << " is in use; it will be removed on the next flan run." << con::endl;
 		}
 	}
 
@@ -580,7 +580,7 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 		commands += (commands.empty() ? "" : ", ") + commandNameFromBin(bin);
 	}
 
-	std::cout << (upgrading ? "Updated " : "Installed ") << label << " to " << versionDir << "." << std::endl;
-	std::cout << "Commands: " << commands << " (in " << paths.bin << ")" << std::endl;
+	con::out << (upgrading ? "Updated " : "Installed ") << label << " to " << versionDir << "." << con::endl;
+	con::out << "Commands: " << commands << " (in " << paths.bin << ")" << con::endl;
 	return ExitCode::Ok;
 }

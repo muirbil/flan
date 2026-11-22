@@ -6,7 +6,7 @@
 #include <knownfolders.h>
 #include "flan/fs.hpp"
 #include "flan/strings.hpp"
-#include <iostream>
+#include "flan/console.hpp"
 #include <string>
 #include <vector>
 
@@ -507,7 +507,7 @@ namespace {
         wchar_t systemDir[MAX_PATH];
         const UINT systemDirLength = GetSystemDirectoryW(systemDir, MAX_PATH);
         if (systemDirLength == 0 || systemDirLength >= MAX_PATH) {
-            std::cerr << "Error: could not locate the system directory." << std::endl;
+            con::err << "Error: could not locate the system directory." << con::endl;
             return false;
         }
 
@@ -541,7 +541,7 @@ bool extractArchive(const std::string& archivePath, const std::string& destinati
 
     if (!CreateProcessW(tarPath.c_str(), mutableCommandLine.data(), NULL, NULL, FALSE,
         0, NULL, NULL, &startupInfo, &processInfo)) {
-        std::cerr << "Error: failed to launch tar.exe (code " << GetLastError() << ")." << std::endl;
+        con::err << "Error: failed to launch tar.exe (code " << GetLastError() << ")." << con::endl;
         return false;
     }
 
@@ -554,7 +554,7 @@ bool extractArchive(const std::string& archivePath, const std::string& destinati
     CloseHandle(processInfo.hThread);
 
     if (exitCode != 0) {
-        std::cerr << "Error: tar exited with code " << exitCode << "." << std::endl;
+        con::err << "Error: tar exited with code " << exitCode << "." << con::endl;
         return false;
     }
 
@@ -578,7 +578,7 @@ bool listArchive(const std::string& archivePath, std::vector<std::string>& entri
     HANDLE readEnd = NULL;
     HANDLE writeEnd = NULL;
     if (!CreatePipe(&readEnd, &writeEnd, &pipeAttributes, 0)) {
-        std::cerr << "Error: failed to create a pipe for tar.exe (code " << GetLastError() << ")." << std::endl;
+        con::err << "Error: failed to create a pipe for tar.exe (code " << GetLastError() << ")." << con::endl;
         return false;
     }
     SetHandleInformation(readEnd, HANDLE_FLAG_INHERIT, 0);
@@ -603,7 +603,7 @@ bool listArchive(const std::string& archivePath, std::vector<std::string>& entri
     CloseHandle(writeEnd);
 
     if (!started) {
-        std::cerr << "Error: failed to launch tar.exe (code " << GetLastError() << ")." << std::endl;
+        con::err << "Error: failed to launch tar.exe (code " << GetLastError() << ")." << con::endl;
         CloseHandle(readEnd);
         return false;
     }
@@ -632,12 +632,12 @@ bool listArchive(const std::string& archivePath, std::vector<std::string>& entri
     CloseHandle(processInfo.hThread);
 
     if (tooLarge) {
-        std::cerr << "Error: archive listing is larger than " << (MAX_LISTING_SIZE / (1024 * 1024)) << " MB." << std::endl;
+        con::err << "Error: archive listing is larger than " << (MAX_LISTING_SIZE / (1024 * 1024)) << " MB." << con::endl;
         return false;
     }
 
     if (exitCode != 0) {
-        std::cerr << "Error: tar exited with code " << exitCode << " while listing the archive." << std::endl;
+        con::err << "Error: tar exited with code " << exitCode << " while listing the archive." << con::endl;
         return false;
     }
 
