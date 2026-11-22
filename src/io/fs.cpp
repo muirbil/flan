@@ -6,7 +6,6 @@
 #include <knownfolders.h>
 #include "flan/fs.hpp"
 #include "flan/strings.hpp"
-#include "flan/console.hpp"
 #include <string>
 #include <vector>
 
@@ -496,65 +495,4 @@ bool treeInUse(const std::wstring& dir) {
         }
     }
     return false;
-}
-
-namespace {
-
-    // Путь к tar.exe задаётся явно. Через system() строка уходила в cmd.exe, который
-    // ищет исполняемый файл сначала в текущем каталоге: подложенный рядом tar.exe
-    // выполнился бы вместо системного.
-    bool systemTarPath(std::wstring& tarPath) {
-        wchar_t systemDir[MAX_PATH];
-        const UINT systemDirLength = GetSystemDirectoryW(systemDir, MAX_PATH);
-        if (systemDirLength == 0 || systemDirLength >= MAX_PATH) {
-            con::err << "Error: could not locate the system directory." << con::endl;
-            return false;
-        }
-
-        tarPath = std::wstring(systemDir) + L"\\tar.exe";
-        return true;
-    }
-
-}
-
-bool extractArchive(const std::string& archivePath, const std::string& destinationDir) {
-
-    std::wstring tarPath;
-    if (!systemTarPath(tarPath)) {
-        return false;
-    }
-
-    // Командная строка собирается для процесса напрямую, без оболочки,
-    // поэтому '&', '|' и прочая метасимволика в путях смысла не имеет.
-    // tar.exe префикс \\?\ не понимает — ему полные пути без него (до этапа 3, шаг 6).
-    const std::wstring commandLine =
-        L"\"" + tarPath + L"\" -xf \"" + fullPath(archivePath) + L"\" -C \"" + fullPath(destinationDir) + L"\"";
-
-    std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
-    mutableCommandLine.push_back(L'\0');
-
-    STARTUPINFOW startupInfo = {};
-    startupInfo.cb = sizeof(startupInfo);
-    PROCESS_INFORMATION processInfo = {};
-
-    if (!CreateProcessW(tarPath.c_str(), mutableCommandLine.data(), NULL, NULL, FALSE,
-        0, NULL, NULL, &startupInfo, &processInfo)) {
-        con::err << "Error: failed to launch tar.exe (code " << GetLastError() << ")." << con::endl;
-        return false;
-    }
-
-    WaitForSingleObject(processInfo.hProcess, INFINITE);
-
-    DWORD exitCode = 1;
-    GetExitCodeProcess(processInfo.hProcess, &exitCode);
-
-    CloseHandle(processInfo.hProcess);
-    CloseHandle(processInfo.hThread);
-
-    if (exitCode != 0) {
-        con::err << "Error: tar exited with code " << exitCode << "." << con::endl;
-        return false;
-    }
-
-    return true;
 }

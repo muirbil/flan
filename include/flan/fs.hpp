@@ -10,7 +10,7 @@
 // с префиксом \\?\ (сетевой путь — \\?\UNC\). Уже начинающийся с \\?\ путь не меняется.
 std::wstring extendedPath(const std::string& path);
 
-// То же без префикса \\?\ — для внешних программ (tar.exe), которые его не понимают.
+// То же без префикса \\?\ — для мест, где он не годится (командная строка процесса, вывод).
 std::wstring fullPath(const std::string& path);
 
 // Корень flan (DESIGN.md §7.1): FLAN_HOME или %USERPROFILE%\.flan.
@@ -66,5 +66,4 @@ bool removeTreeW(const std::wstring& path);
 // Занят ли хоть один файл в дереве (DESIGN.md §7.6, «Занятость каталога»).
 bool treeInUse(const std::wstring& dir);
 
-bool extractArchive(const std::string& archivePath, const std::string& destinationDir);
 

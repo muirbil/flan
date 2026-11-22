@@ -12,6 +12,7 @@
 #include "flan/index.hpp"
 #include "flan/sha256.hpp"
 #include "flan/validate.hpp"
+#include "flan/zip.hpp"
 #include "flan/console.hpp"
 #include <vector>
 
@@ -476,15 +477,8 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 	const std::string appDir = paths.apps + "\\" + name;
 	const std::string staging = appDir + "\\.staging-" + pid;
 
-	// Одиночный .exe (DESIGN.md §5.2) не распаковывается: проверенный файл копируется
-	// в staging под единственным именем из bins, дальше — те же шаги, что и для zip.
-	const bool exe = entry.kind == KIND_EXE;
-	const bool staged = createDirectory(appDir) && createDirectory(staging) &&
-		(exe ? copyFile(archive, staging + "\\" + entry.bins[0], false)
-			 : extractArchive(archive, staging));
-
-	if (!staged) {
-		con::err << "Error: failed to " << (exe ? "place" : "extract") << " " << name << "." << con::endl;
+	if (!createDirectory(appDir) || !createDirectory(staging)) {
+		con::err << "Error: cannot create " << staging << "." << con::endl;
 		removeTree(staging);
 		return ExitCode::Error;
 	}
@@ -494,12 +488,44 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 		return code;
 	};
 
-	// До этапа 3 tar.exe распаковывает архив целиком, а корень приложения — staging\<extract_dir>.
-	const std::string root = entry.extractDir.empty() ? staging : staging + "\\" + entry.extractDir;
-	if (!isDirectory(root)) {
-		con::err << "Error: the archive has no folder '" << entry.extractDir << "'." << con::endl;
-		return abort(ExitCode::Integrity);
+	if (entry.kind == KIND_EXE) {
+		// Одиночный .exe (DESIGN.md §5.2) не распаковывается: проверенный файл копируется
+		// в staging под единственным именем из bins, дальше — те же шаги, что и для zip.
+		if (!copyFile(archive, staging + "\\" + entry.bins[0], false)) {
+			con::err << "Error: failed to place " << name << " (code " << GetLastError() << ")." << con::endl;
+			return abort(ExitCode::Error);
+		}
 	}
+	else {
+		// Свой zip (DESIGN.md §7.3): все имена проверяются до записи первого байта, extract_dir
+		// применяется при распаковке, поэтому корень приложения — сам staging.
+		ZipArchive zip;
+		if (!zip.open(archive, error)) {
+			con::err << "Error: the archive of " << label << " is rejected: " << error << "." << con::endl;
+			return abort(ExitCode::Integrity);
+		}
+
+		// Распакованный размер известен до распаковки (§7.2, «Лимиты»).
+		uint64_t freeBytes = 0;
+		const uint64_t needed = zip.unpackedSize() + FREE_SPACE_MARGIN;
+		if (freeDiskSpace(appDir, freeBytes) && freeBytes < needed) {
+			con::err << "Error: not enough disk space to unpack " << label << ": " << formatSize(needed)
+				<< " needed, " << formatSize(freeBytes) << " free." << con::endl;
+			return abort(ExitCode::Error);
+		}
+
+		if (!entry.extractDir.empty() && !zipHasDirectory(zip.entries(), entry.extractDir)) {
+			con::err << "Error: the archive has no folder '" << entry.extractDir << "'." << con::endl;
+			return abort(ExitCode::Integrity);
+		}
+
+		if (!extractZip(zip, entry.extractDir, staging, error)) {
+			con::err << "Error: failed to extract " << label << ": " << error << "." << con::endl;
+			return abort(ExitCode::Error);
+		}
+	}
+
+	const std::string root = staging;
 
 	// Шаг 5.
 	for (const std::string& bin : entry.bins) {
@@ -521,7 +547,6 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 		con::err << "Error: cannot move the package into " << versionDir << " (code " << GetLastError() << ")." << con::endl;
 		return abort(ExitCode::Error);
 	}
-	removeTree(staging);								// всё, что было вне extract_dir
 
 	// Шаг 7: прослойки, затем — команды прежней версии, которых в новой больше нет.
 	for (const std::string& bin : entry.bins) {
