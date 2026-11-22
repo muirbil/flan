@@ -180,6 +180,7 @@
     <ClCompile Include="src\core\install.cpp" />
     <ClCompile Include="src\core\lock.cpp" />
     <ClCompile Include="src\core\receipt.cpp" />
+    <ClCompile Include="src\core\setup.cpp" />
     <ClCompile Include="src\core\shim.cpp" />
     <ClCompile Include="src\core\sync.cpp" />
     <ClCompile Include="src\crypto\sha256.cpp" />
@@ -198,6 +199,7 @@
     <ClInclude Include="src\core\lock.hpp" />
     <ClInclude Include="src\core\paths.hpp" />
     <ClInclude Include="src\core\receipt.hpp" />
+    <ClInclude Include="src\core\setup.hpp" />
     <ClInclude Include="src\core\shim.hpp" />
     <ClInclude Include="src\core\sync.hpp" />
     <ClInclude Include="include\flan\console.hpp" />

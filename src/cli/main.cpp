@@ -14,6 +14,7 @@
 #include "core/lock.hpp"
 #include "core/paths.hpp"
 #include "core/receipt.hpp"
+#include "core/setup.hpp"
 #include "core/shim.hpp"
 #include "core/sync.hpp"
 
@@ -29,6 +30,7 @@ namespace {
 		con::out << "  install <package>     install or update a package" << con::endl;
 		con::out << "  uninstall <package>   remove a package" << con::endl;
 		con::out << "  installed             installed packages" << con::endl;
+		con::out << "  setup [--remove]      put flan in bin\\ and bin\\ in your PATH (--remove: take it out of PATH)" << con::endl;
 	}
 
 	// Запущен ли процесс с повышенными правами (DESIGN.md §1): flan они не нужны.
@@ -136,7 +138,7 @@ int wmain(int argc, wchar_t* argv[]) {
 	const std::string command = args[1];
 
 	const bool knownCommand = command == "sync" || command == "list" || command == "install" ||
-		command == "uninstall" || command == "installed";
+		command == "uninstall" || command == "installed" || command == "setup";
 	if (!knownCommand) {
 		con::err << "Unknown command: " << command << con::endl;
 		printUsage();
@@ -146,6 +148,13 @@ int wmain(int argc, wchar_t* argv[]) {
 	if ((command == "install" || command == "uninstall") && argc < 3) {
 		con::err << "Error: specify a package." << con::endl;
 		con::err << "Usage: flan " << command << " <package>" << con::endl;
+		return exitWith(ExitCode::Usage);
+	}
+
+	const bool setupRemove = command == "setup" && argc == 3 && args[2] == "--remove";
+	if (command == "setup" && argc > 2 && !setupRemove) {
+		con::err << "Error: unknown option " << args[2] << "." << con::endl;
+		con::err << "Usage: flan setup [--remove]" << con::endl;
 		return exitWith(ExitCode::Usage);
 	}
 
@@ -166,6 +175,11 @@ int wmain(int argc, wchar_t* argv[]) {
 		con::err << "Warning: flan is running as administrator. It does not need that, and files it creates now "
 			"may later get in the way of normal runs." << con::endl;
 	}
+
+	// Прежний bin\flan.exe, отодвинутый flan setup (§7.8, «Копия себя»): удаляется при любом
+	// следующем запуске. Если он ещё работает, удалится в другой раз.
+	deleteFile(paths.bin + "\\flan.exe.old");
+
 	// Раскладка DESIGN.md §7.1.
 	if (!createDirectory(paths.apps) || !createDirectory(paths.bin) || !createDirectory(paths.cache) ||
 		!createDirectory(paths.state) || !createDirectory(paths.tmp)) {
@@ -176,7 +190,7 @@ int wmain(int argc, wchar_t* argv[]) {
 	// Команды, меняющие состояние, работают под блокировкой (DESIGN.md §7.6).
 	// list и installed только читают атомарно записанные файлы и обходятся без неё.
 	FlanLock lock;
-	if (command == "sync" || command == "install" || command == "uninstall") {
+	if (command == "sync" || command == "install" || command == "uninstall" || command == "setup") {
 		switch (lock.acquire(paths.lock, LOCK_TIMEOUT_MS)) {
 		case FlanLock::Result::Acquired:
 			break;
@@ -203,6 +217,9 @@ int wmain(int argc, wchar_t* argv[]) {
 	}
 	if (command == "uninstall") {
 		return exitWith(uninstallPackage(paths, args[2]));
+	}
+	if (command == "setup") {
+		return exitWith(runSetup(paths, setupRemove));
 	}
 	if (command == "list") {
 		return exitWith(listAvailable(paths));

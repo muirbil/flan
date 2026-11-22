@@ -19,3 +19,4 @@ void runHttpTests();
 void runFsTests();
 void runConsoleTests();
 void runZipTests();
+void runSetupTests();

@@ -153,12 +153,14 @@
     <ClCompile Include="test_http.cpp" />
     <ClCompile Include="test_index.cpp" />
     <ClCompile Include="test_receipt.cpp" />
+    <ClCompile Include="test_setup.cpp" />
     <ClCompile Include="test_validate.cpp" />
     <ClCompile Include="test_zip.cpp" />
     <!-- Тестируемый код: разбор индекса, квитанции и прослойки клиента, писатель генератора -->
     <ClCompile Include="..\src\core\index.cpp" />
     <ClCompile Include="..\src\core\index_state.cpp" />
     <ClCompile Include="..\src\core\receipt.cpp" />
+    <ClCompile Include="..\src\core\setup.cpp" />
     <ClCompile Include="..\src\core\shim.cpp" />
     <ClCompile Include="..\src\crypto\sha256.cpp" />
     <ClCompile Include="..\src\io\console.cpp" />

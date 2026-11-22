@@ -42,6 +42,10 @@ bool writeShim(const FlanPaths& paths, const std::string& command, const std::st
 // владельца не трогает вовсе (false с объяснением).
 bool removeShim(const FlanPaths& paths, const std::string& command, const std::string& package, std::string& error);
 
+// Занятый работающей программой .exe (удалить нельзя, переименовать можно) — в tmp\ под уникальным
+// именем; его удалит cleanTemporary при следующей меняющей команде.
+bool moveAside(const FlanPaths& paths, const std::string& path);
+
 // Имена команд всех прослоек пакета (и .exe, и .bat).
 std::vector<std::string> shimsOwnedBy(const FlanPaths& paths, const std::string& package);
 

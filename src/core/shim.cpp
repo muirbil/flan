@@ -232,6 +232,13 @@ bool writeShim(const FlanPaths& paths, const std::string& command, const std::st
 	return true;
 }
 
+bool moveAside(const FlanPaths& paths, const std::string& path) {
+	static unsigned counter = 0;
+	const std::string aside = paths.tmp + "\\shim-" + std::to_string(GetCurrentProcessId()) + "-" +
+		std::to_string(GetTickCount64()) + "-" + std::to_string(counter++) + ".exe";
+	return moveFile(path, aside, false);
+}
+
 bool removeShim(const FlanPaths& paths, const std::string& command, const std::string& package, std::string& error) {
 	std::string owner;
 	const ShimOwner state = readShimOwner(paths, command, owner);
@@ -246,14 +253,9 @@ bool removeShim(const FlanPaths& paths, const std::string& command, const std::s
 	// Имя .exe, через которое сейчас работает программа, не удалить, но переименовать можно:
 	// такая прослойка уезжает в tmp\ и удаляется при следующей меняющей команде (§7.4).
 	const std::string exe = shimExePath(paths, command);
-	if (pathExists(exe) && !deleteFile(exe)) {
-		static unsigned counter = 0;
-		const std::string aside = paths.tmp + "\\shim-" + std::to_string(GetCurrentProcessId()) + "-" +
-			std::to_string(GetTickCount64()) + "-" + std::to_string(counter++) + ".exe";
-		if (!moveFile(exe, aside, false)) {
-			error = "cannot remove " + exe + " (code " + std::to_string(GetLastError()) + ")";
-			return false;
-		}
+	if (pathExists(exe) && !deleteFile(exe) && !moveAside(paths, exe)) {
+		error = "cannot remove " + exe + " (code " + std::to_string(GetLastError()) + ")";
+		return false;
 	}
 
 	const std::string shimFile = shimFilePath(paths, command);

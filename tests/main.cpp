@@ -99,6 +99,16 @@ namespace {
 			return (int)code;
 		}
 
+		// --hold-image <exe> <секунды>: держать exe загруженным как образ — для ФС это то же, что
+		// запущенная программа: файл не удалить и не перезаписать, а переименовать можно.
+		if (mode == "--hold-image" && argc > 3) {
+			const HMODULE image = LoadLibraryExA(argv[2], NULL, DONT_RESOLVE_DLL_REFERENCES);
+			std::printf(image != NULL ? "holding the image\n" : "cannot load the image\n");
+			std::fflush(stdout);
+			Sleep((DWORD)std::atoi(argv[3]) * 1000);
+			return image != NULL ? 0 : 1;
+		}
+
 		// --touch-later <файл>: через 3 с создать файл (жив ли «внук» после выхода прослойки).
 		if (mode == "--touch-later" && argc > 2) {
 			Sleep(3000);
@@ -130,6 +140,7 @@ int main(int argc, char* argv[]) {
 	runFsTests();
 	runConsoleTests();
 	runZipTests();
+	runSetupTests();
 
 	// Разрядность в выводе: переполнения смещений проверяются осмысленно только в 32 битах.
 	std::printf("%d passed, %d failed (%d-bit)\n", passed, failed, (int)(sizeof(void*) * 8));
