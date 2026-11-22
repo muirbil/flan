@@ -12,7 +12,6 @@
 #include "flan/index.hpp"
 #include "flan/sha256.hpp"
 #include "flan/validate.hpp"
-#include <fstream>
 #include <iostream>
 #include <vector>
 
@@ -222,20 +221,7 @@ namespace {
 
 	// Первые size байт уже скачанной части — в хэш, один раз перед продолжением (§7.2).
 	bool hashExistingPart(const std::string& path, uint64_t size, crypto::Sha256& hasher) {
-		std::ifstream in(extendedPath(path).c_str(), std::ios::binary);
-		std::vector<char> buffer(64 * 1024);
-		uint64_t left = size;
-		while (in && left > 0) {
-			const std::streamsize want = (std::streamsize)(left < buffer.size() ? left : buffer.size());
-			in.read(buffer.data(), want);
-			const std::streamsize got = in.gcount();
-			if (got <= 0) {
-				break;
-			}
-			hasher.update(buffer.data(), (size_t)got);
-			left -= (uint64_t)got;
-		}
-		return left == 0 && hasher.ok();
+		return crypto::hashFilePrefix(path, size, hasher);
 	}
 
 	// Шаг 3 транзакции (DESIGN.md §7.6, §7.2). Готовый и целый cache\<sha256> — без сети.

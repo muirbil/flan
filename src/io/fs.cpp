@@ -6,7 +6,6 @@
 #include <knownfolders.h>
 #include "flan/fs.hpp"
 #include "flan/strings.hpp"
-#include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -348,21 +347,116 @@ bool asciiName(const std::wstring& name, std::string& out) {
     return !out.empty();
 }
 
+namespace {
+
+    // Атрибуты самой записи, не цели ссылки: дескриптор открывается с FILE_FLAG_OPEN_REPARSE_POINT.
+    // Через него же снимается «только чтение» — SetFileAttributesW по пути на ссылке менял бы
+    // неизвестно что (DESIGN.md §7.6, «Удаление дерева»).
+    bool readOwnAttributes(const std::wstring& path, DWORD access, HANDLE& handle, DWORD& attributes) {
+        handle = CreateFileW(path.c_str(), access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+            OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+        if (handle == INVALID_HANDLE_VALUE) {
+            return false;
+        }
+
+        FILE_BASIC_INFO info = {};
+        if (!GetFileInformationByHandleEx(handle, FileBasicInfo, &info, sizeof(info))) {
+            CloseHandle(handle);
+            handle = INVALID_HANDLE_VALUE;
+            return false;
+        }
+        attributes = info.FileAttributes;
+        return true;
+    }
+
+    bool setOwnAttributes(HANDLE handle, DWORD attributes) {
+        FILE_BASIC_INFO info = {};
+        if (!GetFileInformationByHandleEx(handle, FileBasicInfo, &info, sizeof(info))) {
+            return false;
+        }
+        info.FileAttributes = attributes == 0 ? FILE_ATTRIBUTE_NORMAL : attributes;
+        return SetFileInformationByHandle(handle, FileBasicInfo, &info, sizeof(info)) != 0;
+    }
+
+    bool clearReadOnly(const std::wstring& path) {
+        HANDLE handle = INVALID_HANDLE_VALUE;
+        DWORD attributes = 0;
+        if (!readOwnAttributes(path, FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES, handle, attributes)) {
+            return false;
+        }
+        const bool ok = !(attributes & FILE_ATTRIBUTE_READONLY) ||
+            setOwnAttributes(handle, attributes & ~FILE_ATTRIBUTE_READONLY);
+        CloseHandle(handle);
+        return ok;
+    }
+
+    bool removeEntry(const std::wstring& path, DWORD attributes) {
+        if (attributes & FILE_ATTRIBUTE_READONLY) {
+            clearReadOnly(path);
+        }
+
+        // Ссылка удаляется как ссылка: DeleteFileW и RemoveDirectoryW на symlink и junction
+        // убирают саму ссылку, а её цель не трогают.
+        if (attributes & FILE_ATTRIBUTE_DIRECTORY) {
+            return RemoveDirectoryW(path.c_str()) != 0;
+        }
+        return DeleteFileW(path.c_str()) != 0;
+    }
+}
+
 bool removeTreeW(const std::wstring& path) {
-    std::error_code ec;
-    std::filesystem::remove_all(std::filesystem::path(path), ec);
-    return !ec && GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES;
+    HANDLE handle = INVALID_HANDLE_VALUE;
+    DWORD attributes = 0;
+    if (!readOwnAttributes(path, FILE_READ_ATTRIBUTES, handle, attributes)) {
+        const DWORD error = GetLastError();
+        return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND;
+    }
+    CloseHandle(handle);
+
+    // Файл, файл-ссылка, каталог-ссылка или junction — внутрь не спускаемся. Признак взят
+    // с дескриптора самой записи (FILE_FLAG_OPEN_REPARSE_POINT), а не из обхода родителя.
+    if (!(attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+        return removeEntry(path, attributes);
+    }
+
+    // Обычный каталог: сначала содержимое. Ошибка на одной записи не останавливает остальные —
+    // удаляется всё, что можно, а итог честно сообщает, что что-то осталось.
+    bool ok = true;
+    std::vector<DirEntry> entries;
+    if (!listDirectory(path, entries)) {
+        ok = false;
+    }
+    for (const DirEntry& entry : entries) {
+        ok = removeTreeW(path + L"\\" + entry.name) && ok;
+    }
+
+    return removeEntry(path, attributes) && ok;
 }
 
 bool removeTree(const std::string& path) {
     return removeTreeW(extendedPath(path));
 }
 
+namespace {
+
+    // Открытие на запись при полном совместном доступе; 0 — открылся, иначе код ошибки.
+    DWORD probeWrite(const std::wstring& path) {
+        const HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+        if (file == INVALID_HANDLE_VALUE) {
+            return GetLastError();
+        }
+        CloseHandle(file);
+        return 0;
+    }
+}
+
 // Занят ли хоть один файл в дереве. Признак — открытие на запись при полном совместном
 // доступе: работающий .exe и файл, открытый программой, дают ERROR_SHARING_VIOLATION.
 // Проверено: открытие на чтение без совместного доступа работающий .exe пропускает
 // (у образа нет открытого дескриптора), а каталог с ним Windows даёт переименовать,
-// так что переименование занятость тоже не показывает. Файлы не изменяются: OPEN_EXISTING.
+// так что переименование занятость тоже не показывает. Содержимое файлов не меняется (OPEN_EXISTING);
+// у файла «только чтение» атрибут на время проверки снимается и возвращается.
 bool treeInUse(const std::wstring& dir) {
     std::vector<DirEntry> entries;
     if (!listDirectory(dir, entries)) {
@@ -380,12 +474,24 @@ bool treeInUse(const std::wstring& dir) {
             continue;
         }
 
-        const HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, NULL);
-        if (file != INVALID_HANDLE_VALUE) {
-            CloseHandle(file);
+        DWORD error = probeWrite(path);
+
+        // Файл «только чтение» на запись не откроется вовсе (ERROR_ACCESS_DENIED), занят он или нет.
+        // Атрибут снимается на время проверки и сразу возвращается: иначе removeTree, который
+        // снимает его перед удалением, начал бы удалять каталог с запущенной программой.
+        if (error == ERROR_ACCESS_DENIED && (entry.attributes & FILE_ATTRIBUTE_READONLY)) {
+            HANDLE handle = INVALID_HANDLE_VALUE;
+            DWORD attributes = 0;
+            if (readOwnAttributes(path, FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES, handle, attributes)) {
+                if (setOwnAttributes(handle, attributes & ~FILE_ATTRIBUTE_READONLY)) {
+                    error = probeWrite(path);
+                    setOwnAttributes(handle, attributes);
+                }
+                CloseHandle(handle);
+            }
         }
-        else if (GetLastError() == ERROR_SHARING_VIOLATION) {
+
+        if (error == ERROR_SHARING_VIOLATION) {
             return true;
         }
     }

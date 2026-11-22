@@ -5,7 +5,6 @@
 #include "flan/sha256.hpp"
 #include "flan/fs.hpp"
 #include "flan/hex.hpp"
-#include <fstream>
 
 #pragma comment(lib, "bcrypt.lib")
 
@@ -95,23 +94,47 @@ namespace crypto {
         return toHex(digest, sizeof(digest));
     }
 
-    std::string calculateSHA256(const std::string& filePath) {
-        // Путь — UTF-8; ifstream получает его уже в UTF-16 (DESIGN.md §7.1).
-        std::ifstream file(extendedPath(filePath).c_str(), std::ios::binary);
-        if (!file) {
-            return std::string();
-        }
+    namespace {
 
-        Sha256 hash;
-        std::vector<char> buffer(64 * 1024);
-        while (file) {
-            file.read(buffer.data(), (std::streamsize)buffer.size());
-            if (file.gcount() > 0) {
-                hash.update(buffer.data(), (size_t)file.gcount());
+        // Читает файл кусками по 64 КБ и подаёт в хэш. whole — до конца файла (bytes не важен),
+        // иначе ровно bytes байт: файл короче — false.
+        bool hashFile(const std::string& filePath, uint64_t bytes, bool whole, Sha256& hash) {
+            const HANDLE file = CreateFileW(extendedPath(filePath).c_str(), GENERIC_READ, FILE_SHARE_READ, NULL,
+                OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+            if (file == INVALID_HANDLE_VALUE) {
+                return false;
             }
-        }
 
-        if (file.bad()) {
+            std::vector<uint8_t> buffer(64 * 1024);
+            uint64_t left = bytes;
+            bool ok = true;
+            while (whole || left > 0) {
+                const DWORD want = (!whole && left < buffer.size()) ? (DWORD)left : (DWORD)buffer.size();
+                DWORD got = 0;
+                if (!ReadFile(file, buffer.data(), want, &got, NULL)) {
+                    ok = false;
+                    break;
+                }
+                if (got == 0) {
+                    ok = whole;								// конец файла: для префикса — короче, чем нужно
+                    break;
+                }
+                hash.update(buffer.data(), got);
+                left -= whole ? 0 : got;
+            }
+
+            CloseHandle(file);
+            return ok && hash.ok();
+        }
+    }
+
+    bool hashFilePrefix(const std::string& filePath, uint64_t bytes, Sha256& hash) {
+        return hashFile(filePath, bytes, false, hash);
+    }
+
+    std::string calculateSHA256(const std::string& filePath) {
+        Sha256 hash;
+        if (!hashFile(filePath, 0, true, hash)) {
             return std::string();
         }
         return hash.finishHex();

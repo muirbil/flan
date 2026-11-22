@@ -36,6 +36,10 @@ namespace crypto {
 		bool ok_ = false;
 	};
 
+	// Первые bytes байт файла — в хэш (докачка, DESIGN.md §7.2: уже скачанная часть хэшируется
+	// один раз перед продолжением). false — файл не прочитать или он короче bytes.
+	bool hashFilePrefix(const std::string& filePath, uint64_t bytes, Sha256& hash);
+
 	// Хэш файла целиком (hex в нижнем регистре); пусто — файл не прочитать.
 	std::string calculateSHA256(const std::string& filePath);
 }

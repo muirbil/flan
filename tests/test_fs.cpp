@@ -2,6 +2,7 @@
 #define NOMINMAX
 
 #include <windows.h>
+#include <winioctl.h>
 #include "test.hpp"
 #include "core/paths.hpp"
 #include "core/receipt.hpp"
@@ -178,6 +179,126 @@ namespace {
 	}
 }
 
+namespace {
+
+	// Junction без прав администратора и без cmd.exe (mklink не понимает путей длиннее MAX_PATH):
+	// каталог + точка повторного анализа IO_REPARSE_TAG_MOUNT_POINT. target — путь вида \\?\C:\…
+	bool makeJunction(const std::wstring& link, const std::wstring& target) {
+		if (!CreateDirectoryW(link.c_str(), NULL)) {
+			return false;
+		}
+
+		const std::wstring substitute = L"\\??\\" + target.substr(4);		// \\?\C:\x -> \??\C:\x
+		const std::wstring print = target.substr(4);
+		const size_t subBytes = substitute.size() * sizeof(wchar_t);
+		const size_t printBytes = print.size() * sizeof(wchar_t);
+
+		// REPARSE_DATA_BUFFER для mount point: заголовок 8 байт, 4 смещения/длины, затем строки с '\0'.
+		std::vector<uint8_t> buffer(8 + 8 + subBytes + 2 + printBytes + 2, 0);
+		auto put16 = [&](size_t at, size_t value) { buffer[at] = (uint8_t)value; buffer[at + 1] = (uint8_t)(value >> 8); };
+		const DWORD tag = IO_REPARSE_TAG_MOUNT_POINT;
+		memcpy(buffer.data(), &tag, 4);
+		put16(4, buffer.size() - 8);					// ReparseDataLength
+		put16(8, 0);									// SubstituteNameOffset
+		put16(10, subBytes);
+		put16(12, subBytes + 2);						// PrintNameOffset
+		put16(14, printBytes);
+		memcpy(buffer.data() + 16, substitute.data(), subBytes);
+		memcpy(buffer.data() + 16 + subBytes + 2, print.data(), printBytes);
+
+		const HANDLE handle = CreateFileW(link.c_str(), GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
+			FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+		if (handle == INVALID_HANDLE_VALUE) {
+			return false;
+		}
+		DWORD returned = 0;
+		const bool ok = DeviceIoControl(handle, FSCTL_SET_REPARSE_POINT, buffer.data(), (DWORD)buffer.size(),
+			NULL, 0, &returned, NULL) != 0;
+		CloseHandle(handle);
+		return ok;
+	}
+
+	bool writeFileW(const std::wstring& path, const char* text) {
+		const HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (file == INVALID_HANDLE_VALUE) {
+			return false;
+		}
+		DWORD written = 0;
+		const bool ok = WriteFile(file, text, (DWORD)strlen(text), &written, NULL) != 0;
+		CloseHandle(file);
+		return ok;
+	}
+
+	bool existsW(const std::wstring& path) {
+		return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+	}
+
+	bool readOnlyW(const std::wstring& path) {
+		const DWORD attributes = GetFileAttributesW(path.c_str());
+		return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_READONLY);
+	}
+
+	// DESIGN.md §7.6, «Удаление дерева»: ссылки удаляются как ссылки, «только чтение» снимается.
+	void testRemoveTree(const std::string& root) {
+		const std::wstring base = extendedPath(root + "\\удаление");
+		const std::wstring outside = base + L"\\снаружи";
+		const std::wstring pkg = base + L"\\пакет";
+		createDirectory(root + "\\удаление\\снаружи");
+		createDirectory(root + "\\удаление\\пакет\\только чтение");
+
+		writeFileW(outside + L"\\keep.txt", "keep");
+		writeFileW(outside + L"\\hard.txt", "hard");
+		writeFileW(pkg + L"\\a.txt", "a");
+		writeFileW(pkg + L"\\только чтение\\b.txt", "b");
+		writeFileW(pkg + L"\\name" + std::wstring(1, (wchar_t)0xDC00) + L".txt", "surrogate");
+		SetFileAttributesW((pkg + L"\\a.txt").c_str(), FILE_ATTRIBUTE_READONLY);
+		SetFileAttributesW((pkg + L"\\только чтение\\b.txt").c_str(), FILE_ATTRIBUTE_READONLY);
+		SetFileAttributesW((pkg + L"\\только чтение").c_str(), FILE_ATTRIBUTE_READONLY);
+
+		const bool junction = makeJunction(pkg + L"\\ссылка", outside);
+		check(junction && existsW(pkg + L"\\ссылка\\keep.txt"), "a junction to a folder outside the tree");
+		check(CreateHardLinkW((pkg + L"\\hard.txt").c_str(), (outside + L"\\hard.txt").c_str(), NULL) != 0,
+			"a hard link to a file outside the tree");
+
+		// Занятость: файл, открытый без совместной записи, — занят; у файла «только чтение»
+		// атрибут на время проверки снимается и возвращается.
+		check(!treeInUse(pkg), "treeInUse: nothing open");
+		check(readOnlyW(pkg + L"\\a.txt"), "treeInUse keeps the read-only attribute");
+
+		HANDLE held = CreateFileW((pkg + L"\\только чтение\\b.txt").c_str(), GENERIC_READ, FILE_SHARE_READ, NULL,
+			OPEN_EXISTING, 0, NULL);
+		check(held != INVALID_HANDLE_VALUE && treeInUse(pkg), "treeInUse: a read-only file held open is busy");
+		check(readOnlyW(pkg + L"\\только чтение\\b.txt"), "treeInUse restores the read-only attribute");
+		if (held != INVALID_HANDLE_VALUE) {
+			CloseHandle(held);
+		}
+
+		held = CreateFileW((outside + L"\\keep.txt").c_str(), GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+		check(!treeInUse(pkg), "treeInUse does not follow the junction");
+		if (held != INVALID_HANDLE_VALUE) {
+			CloseHandle(held);
+		}
+
+		check(removeTreeW(pkg) && !existsW(pkg), "removeTree: read-only files and folders, surrogate name, links");
+		check(existsW(outside + L"\\keep.txt") && existsW(outside + L"\\hard.txt"), "removeTree leaves link targets alone");
+		check(removeTreeW(pkg), "removeTree: a missing path is already removed");
+
+		// Занятый файл: удаляется всё остальное, а итог — false.
+		createDirectory(root + "\\удаление\\занят");
+		const std::wstring busy = base + L"\\занят";
+		writeFileW(busy + L"\\open.txt", "open");
+		writeFileW(busy + L"\\free.txt", "free");
+		held = CreateFileW((busy + L"\\open.txt").c_str(), GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+		check(!removeTreeW(busy) && existsW(busy + L"\\open.txt") && !existsW(busy + L"\\free.txt"),
+			"removeTree: reports a busy file and removes the rest");
+		if (held != INVALID_HANDLE_VALUE) {
+			CloseHandle(held);
+		}
+
+		check(removeTreeW(base) && !existsW(base), "removeTree: cleanup");
+	}
+}
+
 void runFsTests() {
 	beginSuite("fs");
 	testPathsAndHome();
@@ -190,6 +311,7 @@ void runFsTests() {
 
 	testFileOperations(root);
 	testDirectoryWalks(root);
+	testRemoveTree(root);
 
 	// Корень тестов — каталог flan-tests-<pid> во временной папке.
 	const std::string top = root.substr(0, root.find("\\Проверка flan"));

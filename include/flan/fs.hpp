@@ -58,6 +58,7 @@ bool listDirectory(const std::wstring& dir, std::vector<DirEntry>& entries);
 bool asciiName(const std::wstring& name, std::string& out);
 
 // Удаление дерева и проверка занятости — целиком на UTF-16 (DESIGN.md §7.1, §7.6).
+// По ссылкам (junction, symlink) не ходит: удаляет саму ссылку. «Только чтение» снимает.
 // false — что-то осталось (обычно занятый файл).
 bool removeTree(const std::string& path);
 bool removeTreeW(const std::wstring& path);
