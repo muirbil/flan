@@ -223,7 +223,23 @@ extern "C" void ShimMain() {
 	PROCESS_INFORMATION process;
 	memset(&process, 0, sizeof(process));
 
-	if (!CreateProcessW(program, commandLine, NULL, NULL, TRUE, CREATE_SUSPENDED, NULL, NULL, &startup, &process)) {
+	// Путь длиннее MAX_PATH CreateProcessW принимает только с префиксом \\?\ (проверено: без него —
+	// ERROR_PATH_NOT_FOUND). Сама прослойка в bin\ запускается оболочкой без префикса, а путь
+	// программы внутри apps\ длиннее — его и спасает префикс. argv[0] в командной строке остаётся обычным.
+	const wchar_t* launch = program;
+	const bool prefixed = program[0] == L'\\' && program[1] == L'\\' && program[2] == L'?' && program[3] == L'\\';
+	if (programLength >= MAX_PATH && !prefixed) {
+		const bool unc = program[0] == L'\\' && program[1] == L'\\';
+		wchar_t* extended = static_cast<wchar_t*>(allocate(((SIZE_T)programLength + 9) * sizeof(wchar_t)));
+		if (extended == NULL) {
+			fail(L"out of memory", NULL, 0);
+		}
+		lstrcpyW(extended, unc ? L"\\\\?\\UNC\\" : L"\\\\?\\");
+		lstrcpyW(extended + length(extended), unc ? program + 2 : program);
+		launch = extended;
+	}
+
+	if (!CreateProcessW(launch, commandLine, NULL, NULL, TRUE, CREATE_SUSPENDED, NULL, NULL, &startup, &process)) {
 		fail(L"cannot start", program, GetLastError());
 	}
 
