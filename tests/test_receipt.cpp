@@ -142,6 +142,44 @@ void runReceiptTests() {
 		check(!parseIndexState("source=a\netag=" + std::string(300, 'x') + "\n", parsed), "overlong ETag");
 		check(!parseIndexState("", parsed), "empty file");
 	}
+	{
+		// key_id (этап 4): записывается и читается; файл этапов 1–3 без него — номер 0.
+		IndexState state;
+		state.source = "C:\\repo\\index.flan";
+		state.generatedAt = 1795300000;
+		state.keyId = 241;
+		IndexState parsed;
+		check(parseIndexState(formatIndexState(state), parsed) && parsed.keyId == 241 && parsed.generatedAt == 1795300000,
+			"key_id round trip");
+		check(parseIndexState("source=a\ngenerated_at=5\n", parsed) && parsed.keyId == 0, "stage 3 file: key_id 0");
+		check(!parseIndexState("source=a\nkey_id=256\n", parsed), "key_id 256");
+		check(!parseIndexState("source=a\nkey_id=x\n", parsed), "key_id not a number");
+	}
+
+	// Шаг 6 §6.1: номер ключа старше времени.
+	beginSuite("rollback");
+	{
+		const AcceptedIndex last{ 1, 1000 };
+		check(checkRollback(last, AcceptedIndex{ 1, 1000 }) == RollbackVerdict::Accept, "same key, same time (re-download)");
+		check(checkRollback(last, AcceptedIndex{ 1, 1001 }) == RollbackVerdict::Accept, "same key, newer");
+		check(checkRollback(last, AcceptedIndex{ 1, 999 }) == RollbackVerdict::Rollback, "same key, older -> rollback");
+		check(checkRollback(last, AcceptedIndex{ 2, 5 }) == RollbackVerdict::Accept, "newer key, much older time -> accepted");
+		check(checkRollback(AcceptedIndex{ 2, 5 }, AcceptedIndex{ 1, 4000000000ull }) == RollbackVerdict::RetiredKey,
+			"older key, far-future time -> retired");
+		check(checkRollback(AcceptedIndex{ 0, 1795000000 }, AcceptedIndex{ 1, 1 }) == RollbackVerdict::Accept,
+			"first signed index after an unsigned one");
+		check(checkRollback(AcceptedIndex{}, AcceptedIndex{ 240, 0 }) == RollbackVerdict::Accept, "nothing accepted yet");
+
+		// «Заморозка» украденным ключом 1 снимается ключом 2, а state и локальный индекс
+		// сводятся к более позднему по номеру ключа, а не по времени.
+		const AcceptedIndex frozen{ 1, 4000000000ull };
+		const AcceptedIndex rotated{ 2, 1795000000 };
+		const AcceptedIndex merged = laterAccepted(frozen, rotated);
+		check(merged.keyId == 2 && merged.generatedAt == 1795000000, "later of (key 1, future) and (key 2, now) is key 2");
+		const AcceptedIndex sameKey = laterAccepted(AcceptedIndex{ 2, 10 }, AcceptedIndex{ 2, 20 });
+		check(sameKey.keyId == 2 && sameKey.generatedAt == 20, "same key: the later time wins");
+		check(laterAccepted(AcceptedIndex{}, AcceptedIndex{ 1, 7 }).generatedAt == 7, "missing state: the local index decides");
+	}
 
 	beginSuite("shim");
 	{

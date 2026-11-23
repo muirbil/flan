@@ -29,7 +29,25 @@ namespace {
 std::string formatIndexState(const IndexState& state) {
 	return "source=" + state.source + "\n" +
 		"etag=" + state.etag + "\n" +
-		"generated_at=" + std::to_string(state.generatedAt) + "\n";
+		"generated_at=" + std::to_string(state.generatedAt) + "\n" +
+		"key_id=" + std::to_string(state.keyId) + "\n";
+}
+
+AcceptedIndex laterAccepted(const AcceptedIndex& a, const AcceptedIndex& b) {
+	if (a.keyId != b.keyId) {
+		return a.keyId > b.keyId ? a : b;
+	}
+	return a.generatedAt >= b.generatedAt ? a : b;
+}
+
+RollbackVerdict checkRollback(const AcceptedIndex& last, const AcceptedIndex& received) {
+	if (received.keyId < last.keyId) {
+		return RollbackVerdict::RetiredKey;
+	}
+	if (received.keyId > last.keyId) {
+		return RollbackVerdict::Accept;
+	}
+	return received.generatedAt >= last.generatedAt ? RollbackVerdict::Accept : RollbackVerdict::Rollback;
 }
 
 bool parseIndexState(const std::string& text, IndexState& out) {
@@ -77,6 +95,13 @@ bool parseIndexState(const std::string& text, IndexState& out) {
 			if (!parseUint64(value, out.generatedAt)) {
 				return false;
 			}
+		}
+		else if (key == "key_id") {
+			uint64_t number = 0;
+			if (!parseUint64(value, number) || number > 255) {
+				return false;
+			}
+			out.keyId = (uint8_t)number;
 		}
 		// Неизвестные ключи пропускаются: их может дописать будущая версия flan.
 	}

@@ -165,12 +165,42 @@ ExitCode syncIndex(const FlanPaths& paths) {
 		return ExitCode::Error;
 	}
 
-	// Шаги 1, 2 и 5 §6.1 и полная проверка всех записей (§6.2). Подпись — с этапа 4,
-	// распаковка — с этапа 2, защита от отката — с этапа 4.
+	// Шаги 1–5 §6.1 (размер, конверт, подпись, распаковка, разбор) и полная проверка всех записей (§6.2).
 	IndexView view;
 	if (!view.open(std::move(file), error) || !view.validateAll(error)) {
 		deleteFile(candidate);
 		con::err << "Error: the received index is rejected: " << error << ". The current index is kept." << con::endl;
+		return ExitCode::Integrity;
+	}
+
+	// Шаг 6: защита от отката. Последнее принятое — более позднее из index.state и самого
+	// локального индекса: удаление одного из файлов счётчик не сбрасывает.
+	AcceptedIndex last;
+	IndexState recorded;
+	if (loadIndexState(paths, recorded)) {
+		last.keyId = recorded.keyId;
+		last.generatedAt = recorded.generatedAt;
+	}
+	IndexView local;
+	std::string ignored;
+	if (loadLocalIndex(paths, local, ignored) == ExitCode::Ok) {
+		last = laterAccepted(last, AcceptedIndex{ local.keyId(), local.generatedAt() });
+	}
+
+	const AcceptedIndex incoming{ view.keyId(), view.generatedAt() };
+	switch (checkRollback(last, incoming)) {
+	case RollbackVerdict::Accept:
+		break;
+	case RollbackVerdict::RetiredKey:
+		deleteFile(candidate);
+		con::err << "Error: the received index is signed with key " << (int)incoming.keyId << ", but this flan has already accepted "
+			<< "an index signed with key " << (int)last.keyId << ". Key " << (int)incoming.keyId
+			<< " is retired. The current index is kept." << con::endl;
+		return ExitCode::Integrity;
+	case RollbackVerdict::Rollback:
+		deleteFile(candidate);
+		con::err << "Error: the received index is older than the current one (generated " << formatUnixTime(incoming.generatedAt)
+			<< ", current " << formatUnixTime(last.generatedAt) << "). This looks like a rollback; the current index is kept." << con::endl;
 		return ExitCode::Integrity;
 	}
 
@@ -190,6 +220,7 @@ ExitCode syncIndex(const FlanPaths& paths) {
 
 	// Состояние пишется после принятия индекса: ETag всегда описывает тот файл, что лежит в state\.
 	accepted.generatedAt = view.generatedAt();
+	accepted.keyId = view.keyId();
 	if (!saveIndexState(paths, accepted)) {
 		con::err << "Warning: cannot write " << paths.state << "\\index.state; the next sync will download the index in full." << con::endl;
 	}
