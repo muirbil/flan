@@ -8,6 +8,21 @@
 // прослоек и переход с .bat. --remove — убрать bin\ из PATH (файлы не трогаются). Под блокировкой.
 ExitCode runSetup(const FlanPaths& paths, bool remove);
 
+// Замена bin\flan.exe файлом bin\flan.exe.new (§7.8, «Копия себя»; §7.9, шаг 4): работающий bin\flan.exe
+// уходит в flan.exe.old, .new встаёт на место, сбой второго переименования возвращает первое.
+// Занятый flan.exe.old — отказ с подсказкой повторить retry. replaced — был ли прежний bin\flan.exe.
+// При отказе .new удаляется. Сообщения об ошибках печатает сама.
+std::string flanExeNewPath(const FlanPaths& paths);
+bool putFlanExeInPlace(const FlanPaths& paths, const char* retry, bool& replaced);
+
+// Эталон прослоек из этого flan.exe и перевешивание на него всех прослоек; .bat и недостающие
+// прослойки — по квитанциям (§7.4). Вызывается из setup и, если эталон устарел, в начале
+// каждой изменяющей команды (§7.9).
+bool refreshShims(const FlanPaths& paths);
+
+// bin\.shim.exe есть и отличается от прослойки, вшитой в этот flan.exe.
+bool shimReferenceIsStale(const FlanPaths& paths);
+
 // Правка значения PATH — отдельно от реестра, ради тестов. Всё в UTF-16: значение сохраняется
 // байт в байт, кроме добавленного или удалённых сегментов.
 

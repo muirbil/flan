@@ -183,6 +183,7 @@
     <ClCompile Include="src\core\setup.cpp" />
     <ClCompile Include="src\core\shim.cpp" />
     <ClCompile Include="src\core\sync.cpp" />
+    <ClCompile Include="src\core\upgrade.cpp" />
     <ClCompile Include="src\crypto\sha256.cpp" />
     <ClCompile Include="src\crypto\signature.cpp" />
     <ClCompile Include="src\io\console.cpp" />

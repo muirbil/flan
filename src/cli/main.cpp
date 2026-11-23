@@ -17,6 +17,7 @@
 #include "core/setup.hpp"
 #include "core/shim.hpp"
 #include "core/sync.hpp"
+#include "core/upgrade.hpp"
 #include "flan/version.h"
 
 // cli — разбор аргументов, вывод и коды возврата (DESIGN.md §4); вся работа — в core/.
@@ -157,7 +158,7 @@ int wmain(int argc, wchar_t* argv[]) {
 		return exitWith(ExitCode::Ok);
 	}
 
-	const bool knownCommand = command == "sync" || command == "list" || command == "install" ||
+	const bool knownCommand = command == "sync" || command == "list" || command == "install" || command == "upgrade" ||
 		command == "uninstall" || command == "installed" || command == "setup";
 	if (!knownCommand) {
 		con::err << "Unknown command: " << command << con::endl;
@@ -210,7 +211,7 @@ int wmain(int argc, wchar_t* argv[]) {
 	// Команды, меняющие состояние, работают под блокировкой (DESIGN.md §7.6).
 	// list и installed только читают атомарно записанные файлы и обходятся без неё.
 	FlanLock lock;
-	if (command == "sync" || command == "install" || command == "uninstall" || command == "setup") {
+	if (command == "sync" || command == "install" || command == "upgrade" || command == "uninstall" || command == "setup") {
 		switch (lock.acquire(paths.lock, LOCK_TIMEOUT_MS)) {
 		case FlanLock::Result::Acquired:
 			break;
@@ -227,6 +228,11 @@ int wmain(int argc, wchar_t* argv[]) {
 
 		// Прослойки, перенесённые в tmp\, потому что их программа тогда работала (§7.4).
 		cleanTemporary(paths);
+
+		// Эталон прослоек от прежнего flan — после самообновления (§7.9). setup делает это сам.
+		if (command != "setup" && shimReferenceIsStale(paths)) {
+			refreshShims(paths);
+		}
 	}
 
 	if (command == "sync") {
@@ -234,6 +240,9 @@ int wmain(int argc, wchar_t* argv[]) {
 	}
 	if (command == "install") {
 		return exitWith(installPackage(paths, args[2]));
+	}
+	if (command == "upgrade") {
+		return exitWith(upgradePackages(paths, std::vector<std::string>(args.begin() + 2, args.end())));
 	}
 	if (command == "uninstall") {
 		return exitWith(uninstallPackage(paths, args[2]));

@@ -4,6 +4,7 @@
 #include <windows.h>
 #include "test.hpp"
 #include "core/setup.hpp"
+#include "core/upgrade.hpp"
 #include <string>
 
 // Правка PATH для flan setup (DESIGN.md §7.8): значение любой длины, остальное — байт в байт.
@@ -77,4 +78,16 @@ void runSetupTests() {
 		"longest launchable name: exactly up to 259", std::to_string(longestLaunchableName(deepBin)));
 	check(longestLaunchableName(std::wstring(254, L'x')) == 0, "longest launchable name: none when bin\\ is too long");
 	check(longestLaunchableName(std::wstring(253, L'x')) == 1, "longest launchable name: one character left");
+
+	// Вывод `flan.exe.new --version` при самообновлении (§7.9, шаг 3).
+	beginSuite("version line");
+	check(parseVersionLine("flan 0.4.0 (x64)\r\n") == "0.4.0", "console line with CRLF");
+	check(parseVersionLine("flan 0.4.1 (x86)") == "0.4.1", "without a line break");
+	check(parseVersionLine("flan 1.0.0-rc1 (x64)\nextra\n") == "1.0.0-rc1", "only the first line counts");
+	check(parseVersionLine("Flan 0.4.0 (x64)").empty(), "wrong case of the name");
+	check(parseVersionLine("flan 0.4.0").empty(), "no architecture");
+	check(parseVersionLine("flan 0.4.0 x64").empty(), "architecture without parentheses");
+	check(parseVersionLine("flan .. (x64)").empty(), "unsafe version");
+	check(parseVersionLine("Usage: flan <command> [options]").empty(), "usage text");
+	check(parseVersionLine("").empty(), "empty output");
 }

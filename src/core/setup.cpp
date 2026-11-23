@@ -287,6 +287,45 @@ namespace {
 		return true;
 	}
 
+}
+
+std::string flanExeNewPath(const FlanPaths& paths) {
+	return paths.bin + "\\flan.exe.new";
+}
+
+bool putFlanExeInPlace(const FlanPaths& paths, const char* retry, bool& replaced) {
+	const std::string target = paths.bin + "\\flan.exe";
+	const std::string fresh = flanExeNewPath(paths);
+	const std::string old = paths.bin + "\\flan.exe.old";
+
+	// Работающий bin\flan.exe перезаписать нельзя, а переименовать можно: он уходит в flan.exe.old
+	// и удаляется при следующем запуске любой команды.
+	replaced = pathExists(target);
+	if (replaced) {
+		if (pathExists(old) && !deleteFile(old)) {
+			con::err << "Error: " << old << " is still running (an older flan). Close it and run '" << retry << "' again." << con::endl;
+			deleteFile(fresh);
+			return false;
+		}
+		if (!moveFile(target, old, false)) {
+			con::err << "Error: cannot move " << target << " aside (code " << GetLastError() << ")." << con::endl;
+			deleteFile(fresh);
+			return false;
+		}
+	}
+	if (!moveFile(fresh, target, false)) {
+		con::err << "Error: cannot put the new flan.exe in place (code " << GetLastError() << ")." << con::endl;
+		if (replaced) {
+			moveFile(old, target, false);
+		}
+		deleteFile(fresh);
+		return false;
+	}
+	return true;
+}
+
+namespace {
+
 	// ----- Копия себя в bin\flan.exe (§7.8, «Копия себя»; тот же приём, что в §7.9) -----
 
 	// Один ли это файл: сравниваются идентификаторы, а не строки путей (регистр, 8.3, жёсткие ссылки).
@@ -322,40 +361,19 @@ namespace {
 			return true;
 		}
 
-		const std::string fresh = target + ".new";
-		const std::string old = target + ".old";
+		const std::string fresh = flanExeNewPath(paths);
 		deleteFile(fresh);
 		if (!copyFile(selfPath, fresh, true)) {
 			con::err << "Error: cannot copy flan.exe to " << fresh << " (code " << GetLastError() << ")." << con::endl;
 			return false;
 		}
 
-		// Работающий bin\flan.exe перезаписать нельзя, а переименовать можно: он уходит в flan.exe.old
-		// и удаляется при следующем запуске любой команды.
-		const bool replacing = pathExists(target);
-		if (replacing) {
-			if (pathExists(old) && !deleteFile(old)) {
-				con::err << "Error: " << old << " is still running (an older flan). Close it and run 'flan setup' again." << con::endl;
-				deleteFile(fresh);
-				return false;
-			}
-			if (!moveFile(target, old, false)) {
-				con::err << "Error: cannot move " << target << " aside (code " << GetLastError() << ")." << con::endl;
-				deleteFile(fresh);
-				return false;
-			}
-		}
-		if (!moveFile(fresh, target, false)) {
-			con::err << "Error: cannot put the new flan.exe in place (code " << GetLastError() << ")." << con::endl;
-			if (replacing) {
-				moveFile(old, target, false);
-			}
-			deleteFile(fresh);
+		bool replaced = false;
+		if (!putFlanExeInPlace(paths, "flan setup", replaced)) {
 			return false;
 		}
-
-		con::out << (replacing ? "Updated " : "Copied flan.exe to ") << target
-			<< (replacing ? " (the previous one stays as flan.exe.old until the next flan run)." : ".") << con::endl;
+		con::out << (replaced ? "Updated " : "Copied flan.exe to ") << target
+			<< (replaced ? " (the previous one stays as flan.exe.old until the next flan run)." : ".") << con::endl;
 		return true;
 	}
 
@@ -368,103 +386,114 @@ namespace {
 			std::equal(current.begin(), current.end(), bytes.begin(), [](uint8_t a, char b) { return a == (uint8_t)b; });
 	}
 
-	bool refreshShims(const FlanPaths& paths) {
-		const void* data = nullptr;
-		size_t size = 0;
-		if (!embeddedShim(data, size)) {
-			con::err << "Error: this flan.exe carries no shim." << con::endl;
+}
+
+bool refreshShims(const FlanPaths& paths) {
+	const void* data = nullptr;
+	size_t size = 0;
+	if (!embeddedShim(data, size)) {
+		con::err << "Error: this flan.exe carries no shim." << con::endl;
+		return false;
+	}
+	const std::string bytes(static_cast<const char*>(data), size);
+	const std::string reference = shimReferencePath(paths);
+
+	// Новый эталон. Старое имя удаляется (у жёсткой ссылки — можно и при запущенной прослойке)
+	// или уезжает в tmp\; прослойки на старом эталоне продолжают работать до перевешивания.
+	bool ok = true;
+	const bool newReference = !sameContent(reference, bytes);
+	if (newReference) {
+		if (pathExists(reference) && !deleteFile(reference) && !moveAside(paths, reference)) {
+			con::err << "Error: cannot replace " << reference << "." << con::endl;
 			return false;
 		}
-		const std::string bytes(static_cast<const char*>(data), size);
-		const std::string reference = shimReferencePath(paths);
+		if (!saveFileAtomically(reference, bytes)) {
+			con::err << "Error: cannot write " << reference << "." << con::endl;
+			return false;
+		}
+	}
 
-		// Новый эталон. Старое имя удаляется (у жёсткой ссылки — можно и при запущенной прослойке)
-		// или уезжает в tmp\; прослойки на старом эталоне продолжают работать до перевешивания.
-		bool ok = true;
-		const bool newReference = !sameContent(reference, bytes);
-		if (newReference) {
-			if (pathExists(reference) && !deleteFile(reference) && !moveAside(paths, reference)) {
-				con::err << "Error: cannot replace " << reference << "." << con::endl;
-				return false;
-			}
-			if (!saveFileAtomically(reference, bytes)) {
-				con::err << "Error: cannot write " << reference << "." << con::endl;
-				return false;
-			}
+	// Каждая прослойка — тот же файл, что эталон (или копия с тем же содержимым на не-NTFS).
+	size_t relinked = 0;
+	std::vector<DirEntry> entries;
+	listDirectory(extendedPath(paths.bin), entries);
+	for (const DirEntry& entry : entries) {
+		std::string name;
+		if ((entry.attributes & FILE_ATTRIBUTE_DIRECTORY) || !asciiName(entry.name, name) || name.size() <= 5 ||
+			toLowerAscii(name.substr(name.size() - 5)) != ".shim") {
+			continue;
+		}
+		const std::string command = name.substr(0, name.size() - 5);
+		std::string owner;
+		if (!isSafeName(command) || readShimOwner(paths, command, owner) != ShimOwner::Package) {
+			continue;
 		}
 
-		// Каждая прослойка — тот же файл, что эталон (или копия с тем же содержимым на не-NTFS).
-		size_t relinked = 0;
-		std::vector<DirEntry> entries;
-		listDirectory(extendedPath(paths.bin), entries);
-		for (const DirEntry& entry : entries) {
-			std::string name;
-			if ((entry.attributes & FILE_ATTRIBUTE_DIRECTORY) || !asciiName(entry.name, name) || name.size() <= 5 ||
-				toLowerAscii(name.substr(name.size() - 5)) != ".shim") {
-				continue;
-			}
-			const std::string command = name.substr(0, name.size() - 5);
-			std::string owner;
-			if (!isSafeName(command) || readShimOwner(paths, command, owner) != ShimOwner::Package) {
-				continue;
-			}
+		const std::string exe = shimExePath(paths, command);
+		if (pathExists(exe) && (sameFile(exe, reference) || sameContent(exe, bytes))) {
+			continue;
+		}
 
-			const std::string exe = shimExePath(paths, command);
-			if (pathExists(exe) && (sameFile(exe, reference) || sameContent(exe, bytes))) {
-				continue;
-			}
-
-			const std::string fresh = exe + ".new";
+		const std::string fresh = exe + ".new";
+		deleteFile(fresh);
+		const bool made = CreateHardLinkW(extendedPath(fresh).c_str(), extendedPath(reference).c_str(), NULL) ||
+			copyFile(reference, fresh, false);
+		const bool cleared = made && (!pathExists(exe) || deleteFile(exe) || moveAside(paths, exe));
+		if (!cleared || !moveFile(fresh, exe, false)) {
+			con::err << "Error: cannot update " << exe << "." << con::endl;
 			deleteFile(fresh);
-			const bool made = CreateHardLinkW(extendedPath(fresh).c_str(), extendedPath(reference).c_str(), NULL) ||
-				copyFile(reference, fresh, false);
-			const bool cleared = made && (!pathExists(exe) || deleteFile(exe) || moveAside(paths, exe));
-			if (!cleared || !moveFile(fresh, exe, false)) {
-				con::err << "Error: cannot update " << exe << "." << con::endl;
-				deleteFile(fresh);
+			ok = false;
+			continue;
+		}
+		relinked++;
+	}
+
+	// .bat этапов 1–2 и недостающие прослойки установленных пакетов — по их квитанциям.
+	size_t converted = 0;
+	std::vector<std::string> problems;
+	for (const Receipt& receipt : listReceipts(paths, problems)) {
+		for (const std::string& bin : receipt.bins) {
+			const std::string command = commandNameFromBin(bin);
+			std::string owner;
+			if (readShimOwner(paths, command, owner) != ShimOwner::Package || owner != receipt.name) {
+				continue;
+			}
+			const bool bat = pathExists(batShimPath(paths, command));
+			if (!bat && pathExists(shimExePath(paths, command)) && pathExists(shimFilePath(paths, command))) {
+				continue;
+			}
+			std::string error;
+			const std::string target = "..\\apps\\" + receipt.name + "\\" + receipt.dir + "\\" + bin;
+			if (!writeShim(paths, command, target, receipt.name, error)) {
+				con::err << "Error: " << error << "." << con::endl;
 				ok = false;
 				continue;
 			}
-			relinked++;
+			converted++;
 		}
-
-		// .bat этапов 1–2 и недостающие прослойки установленных пакетов — по их квитанциям.
-		size_t converted = 0;
-		std::vector<std::string> problems;
-		for (const Receipt& receipt : listReceipts(paths, problems)) {
-			for (const std::string& bin : receipt.bins) {
-				const std::string command = commandNameFromBin(bin);
-				std::string owner;
-				if (readShimOwner(paths, command, owner) != ShimOwner::Package || owner != receipt.name) {
-					continue;
-				}
-				const bool bat = pathExists(batShimPath(paths, command));
-				if (!bat && pathExists(shimExePath(paths, command)) && pathExists(shimFilePath(paths, command))) {
-					continue;
-				}
-				std::string error;
-				const std::string target = "..\\apps\\" + receipt.name + "\\" + receipt.dir + "\\" + bin;
-				if (!writeShim(paths, command, target, receipt.name, error)) {
-					con::err << "Error: " << error << "." << con::endl;
-					ok = false;
-					continue;
-				}
-				converted++;
-			}
-		}
-
-		if (newReference) {
-			con::out << "Wrote the shim of this flan to " << reference << "." << con::endl;
-		}
-		if (relinked > 0) {
-			con::out << "Updated " << relinked << " command(s) to the new shim." << con::endl;
-		}
-		if (converted > 0) {
-			con::out << "Converted " << converted << " command(s) to shim.exe (from .bat or missing files)." << con::endl;
-		}
-		return ok;
 	}
 
+	if (newReference) {
+		con::out << "Wrote the shim of this flan to " << reference << "." << con::endl;
+	}
+	if (relinked > 0) {
+		con::out << "Updated " << relinked << " command(s) to the new shim." << con::endl;
+	}
+	if (converted > 0) {
+		con::out << "Converted " << converted << " command(s) to shim.exe (from .bat or missing files)." << con::endl;
+	}
+	return ok;
+}
+
+bool shimReferenceIsStale(const FlanPaths& paths) {
+	const void* data = nullptr;
+	size_t size = 0;
+	const std::string reference = shimReferencePath(paths);
+	return embeddedShim(data, size) && pathExists(reference) &&
+		!sameContent(reference, std::string(static_cast<const char*>(data), size));
+}
+
+namespace {
 	// ----- Длина пути запуска (§7.8, «Длинный путь bin\») -----
 
 	// Только предупреждение: файлы flan по длинным путям работают, не запускаются лишь сами команды.

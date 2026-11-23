@@ -225,115 +225,136 @@ namespace {
 		return crypto::hashFilePrefix(path, size, hasher);
 	}
 
-	// Шаг 3 транзакции (DESIGN.md §7.6, §7.2). Готовый и целый cache\<sha256> — без сети.
-	// Иначе загрузка в cache\<sha256>.part: с Range от уже скачанного, с хэшем на лету,
-	// не больше archive_size. Если после докачки хэш не сошёлся — один раз заново целиком.
-	ExitCode fetchArchive(const FlanPaths& paths, const IndexRecord& entry, const std::string& sha256,
-		const std::string& label, std::string& archive) {
+}
 
-		archive = paths.cache + "\\" + sha256;
-		const std::string part = archive + ".part";
+ExitCode findBuildForThisSystem(const IndexView& index, const std::string& name, IndexRecord& entry, std::string& error) {
+	std::vector<uint8_t> archs;
+	if (!preferredArchitectures(archs, error)) {
+		return ExitCode::Error;
+	}
 
-		uint64_t size = 0;
-		if (fileSize(archive, size)) {
-			if (size == entry.archiveSize && crypto::calculateSHA256(archive) == sha256) {
-				con::out << "Using the cached archive of " << label << "." << con::endl;
-				return ExitCode::Ok;
-			}
-			deleteFile(archive);
+	FindResult found = FindResult::NotFound;
+	for (const uint8_t arch : archs) {
+		found = index.find(name, arch, entry, error);
+		if (found != FindResult::NotFound) {
+			break;
 		}
-
-		for (int pass = 0; pass < 2; pass++) {
-			uint64_t have = 0;
-			if (fileSize(part, have) && have > entry.archiveSize) {
-				deleteFile(part);
-				have = 0;
-			}
-
-			crypto::Sha256 hasher;
-			if (have > 0 && !hashExistingPart(part, have, hasher)) {
-				deleteFile(part);
-				hasher.reset();
-				have = 0;
-			}
-
-			uint64_t freeBytes = 0;
-			const uint64_t needed = entry.archiveSize - have + FREE_SPACE_MARGIN;
-			if (freeDiskSpace(paths.cache, freeBytes) && freeBytes < needed) {
-				con::err << "Error: not enough disk space for " << label << ": " << formatSize(needed)
-					<< " needed, " << formatSize(freeBytes) << " free." << con::endl;
-				return ExitCode::Error;
-			}
-
-			const bool resuming = have > 0;
-			bool resumedAnywhere = resuming;					// с прошлого .part или после обрыва в этом запуске
-			if (have == entry.archiveSize) {
-				// Процесс убили после загрузки, до переименования: запрос не нужен, только хэш.
-				con::out << "The download of " << label << " is already complete; verifying." << con::endl;
-			}
-			else {
-				if (resuming) {
-					con::out << "Resuming " << label << ": " << formatSize(entry.archiveSize - have) << " of "
-						<< formatSize(entry.archiveSize) << " left, from " << entry.url << con::endl;
-				}
-				else {
-					con::out << "Downloading " << label << ": " << formatSize(entry.archiveSize) << " from " << entry.url << con::endl;
-				}
-
-				HttpRequest request;
-				request.url = entry.url;
-				request.destination = part;
-				request.resumeFrom = have;
-				request.expectedSize = entry.archiveSize;
-				request.maxSize = entry.archiveSize;
-				request.hasher = &hasher;
-
-				const HttpResult result = httpGet(request);
-				switch (result.outcome) {
-				case HttpOutcome::Ok:
-					resumedAnywhere = resumedAnywhere || result.resumed;
-					if (resuming || result.resumed) {
-						con::out << "  received " << formatSize(result.bodyBytes) << " of " << formatSize(entry.archiveSize)
-							<< (result.resumed ? " (resumed)" : " (the server restarted the download)") << con::endl;
-					}
-					break;
-				case HttpOutcome::SizeMismatch:
-					deleteFile(part);
-					con::err << "Error: " << label << ": " << result.error << "." << con::endl;
-					return ExitCode::Integrity;
-				case HttpOutcome::LocalError:
-					con::err << "Error: " << result.error << "." << con::endl;
-					return ExitCode::Error;
-				default:
-					// .part остаётся: следующий install продолжит с него.
-					con::err << "Error: failed to download " << label << ": " << result.error << "." << con::endl;
-					return ExitCode::Network;
-				}
-			}
-
-			const std::string actual = hasher.finishHex();
-			if (actual == sha256) {
-				if (!moveFile(part, archive, true)) {
-					con::err << "Error: cannot move the archive into " << archive << " (code " << GetLastError() << ")." << con::endl;
-					return ExitCode::Error;
-				}
-				return ExitCode::Ok;
-			}
-
-			deleteFile(part);
-			if (resumedAnywhere && pass == 0) {
-				con::err << "Warning: SHA-256 mismatch after resuming; downloading " << label << " again from scratch." << con::endl;
-				continue;
-			}
-
-			con::err << "Error: SHA-256 mismatch for " << label << ". The file may be corrupted or tampered with." << con::endl;
-			con::err << "  expected: " << sha256 << con::endl;
-			con::err << "  actual:   " << actual << con::endl;
-			return ExitCode::Integrity;
-		}
-
+	}
+	if (found == FindResult::Corrupt) {
+		error = "the local index is corrupted (" + error + "). Run 'flan sync' to fetch it again";
 		return ExitCode::Integrity;
 	}
+	if (found == FindResult::NotFound) {
+		error = "package '" + name + "' is not in the index for this architecture";
+		return ExitCode::NotFound;
+	}
+	return ExitCode::Ok;
+}
+
+ExitCode fetchArchive(const FlanPaths& paths, const IndexRecord& entry, const std::string& sha256,
+	const std::string& label, std::string& archive) {
+	archive = paths.cache + "\\" + sha256;
+	const std::string part = archive + ".part";
+
+	uint64_t size = 0;
+	if (fileSize(archive, size)) {
+		if (size == entry.archiveSize && crypto::calculateSHA256(archive) == sha256) {
+			con::out << "Using the cached archive of " << label << "." << con::endl;
+			return ExitCode::Ok;
+		}
+		deleteFile(archive);
+	}
+
+	for (int pass = 0; pass < 2; pass++) {
+		uint64_t have = 0;
+		if (fileSize(part, have) && have > entry.archiveSize) {
+			deleteFile(part);
+			have = 0;
+		}
+
+		crypto::Sha256 hasher;
+		if (have > 0 && !hashExistingPart(part, have, hasher)) {
+			deleteFile(part);
+			hasher.reset();
+			have = 0;
+		}
+
+		uint64_t freeBytes = 0;
+		const uint64_t needed = entry.archiveSize - have + FREE_SPACE_MARGIN;
+		if (freeDiskSpace(paths.cache, freeBytes) && freeBytes < needed) {
+			con::err << "Error: not enough disk space for " << label << ": " << formatSize(needed)
+				<< " needed, " << formatSize(freeBytes) << " free." << con::endl;
+			return ExitCode::Error;
+		}
+
+		const bool resuming = have > 0;
+		bool resumedAnywhere = resuming;					// с прошлого .part или после обрыва в этом запуске
+		if (have == entry.archiveSize) {
+			// Процесс убили после загрузки, до переименования: запрос не нужен, только хэш.
+			con::out << "The download of " << label << " is already complete; verifying." << con::endl;
+		}
+		else {
+			if (resuming) {
+				con::out << "Resuming " << label << ": " << formatSize(entry.archiveSize - have) << " of "
+					<< formatSize(entry.archiveSize) << " left, from " << entry.url << con::endl;
+			}
+			else {
+				con::out << "Downloading " << label << ": " << formatSize(entry.archiveSize) << " from " << entry.url << con::endl;
+			}
+
+			HttpRequest request;
+			request.url = entry.url;
+			request.destination = part;
+			request.resumeFrom = have;
+			request.expectedSize = entry.archiveSize;
+			request.maxSize = entry.archiveSize;
+			request.hasher = &hasher;
+
+			const HttpResult result = httpGet(request);
+			switch (result.outcome) {
+			case HttpOutcome::Ok:
+				resumedAnywhere = resumedAnywhere || result.resumed;
+				if (resuming || result.resumed) {
+					con::out << "  received " << formatSize(result.bodyBytes) << " of " << formatSize(entry.archiveSize)
+						<< (result.resumed ? " (resumed)" : " (the server restarted the download)") << con::endl;
+				}
+				break;
+			case HttpOutcome::SizeMismatch:
+				deleteFile(part);
+				con::err << "Error: " << label << ": " << result.error << "." << con::endl;
+				return ExitCode::Integrity;
+			case HttpOutcome::LocalError:
+				con::err << "Error: " << result.error << "." << con::endl;
+				return ExitCode::Error;
+			default:
+				// .part остаётся: следующий install продолжит с него.
+				con::err << "Error: failed to download " << label << ": " << result.error << "." << con::endl;
+				return ExitCode::Network;
+			}
+		}
+
+		const std::string actual = hasher.finishHex();
+		if (actual == sha256) {
+			if (!moveFile(part, archive, true)) {
+				con::err << "Error: cannot move the archive into " << archive << " (code " << GetLastError() << ")." << con::endl;
+				return ExitCode::Error;
+			}
+			return ExitCode::Ok;
+		}
+
+		deleteFile(part);
+		if (resumedAnywhere && pass == 0) {
+			con::err << "Warning: SHA-256 mismatch after resuming; downloading " << label << " again from scratch." << con::endl;
+			continue;
+		}
+
+		con::err << "Error: SHA-256 mismatch for " << label << ". The file may be corrupted or tampered with." << con::endl;
+		con::err << "  expected: " << sha256 << con::endl;
+		con::err << "  actual:   " << actual << con::endl;
+		return ExitCode::Integrity;
+	}
+
+	return ExitCode::Integrity;
 }
 
 ExitCode uninstallPackage(const FlanPaths& paths, const std::string& requestedName) {
@@ -419,28 +440,11 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 	}
 
 	// Шаг 1: запись для архитектуры ОС.
-	std::vector<uint8_t> archs;
-	if (!preferredArchitectures(archs, error)) {
-		con::err << "Error: " << error << "." << con::endl;
-		return ExitCode::Error;
-	}
-
 	IndexRecord entry;
-	FindResult found = FindResult::NotFound;
-	for (const uint8_t arch : archs) {
-		found = index.find(name, arch, entry, error);
-		if (found != FindResult::NotFound) {
-			break;
-		}
-	}
-
-	if (found == FindResult::Corrupt) {
-		con::err << "Error: the local index is corrupted (" << error << "). Run 'flan sync' to fetch it again." << con::endl;
-		return ExitCode::Integrity;
-	}
-	if (found == FindResult::NotFound) {
-		con::err << "Error: package '" << name << "' is not in the index for this architecture." << con::endl;
-		return ExitCode::NotFound;
+	const ExitCode found = findBuildForThisSystem(index, name, entry, error);
+	if (found != ExitCode::Ok) {
+		con::err << "Error: " << error << "." << con::endl;
+		return found;
 	}
 
 	const std::string sha256 = toHex(entry.sha256, sizeof(entry.sha256));

@@ -3,6 +3,17 @@
 #include <string>
 #include "core/exit_code.hpp"
 #include "core/paths.hpp"
+#include "flan/index.hpp"
+
+// Шаг 1 транзакции (DESIGN.md §7.6): сборка для архитектуры ОС (на x64 — x64, иначе x86).
+// Ok; NotFound; Integrity — индекс повреждён; Error — архитектура не поддерживается. error — для вывода.
+ExitCode findBuildForThisSystem(const IndexView& index, const std::string& name, IndexRecord& entry, std::string& error);
+
+// Шаг 3 (DESIGN.md §7.6, §7.2): файл пакета в cache\<sha256>. Готовый и целый — без сети; иначе загрузка
+// в cache\<sha256>.part с Range от уже скачанного, с хэшем на лету, не больше archive_size. Если после
+// докачки хэш не сошёлся — один раз заново целиком. Сообщения печатает сам.
+ExitCode fetchArchive(const FlanPaths& paths, const IndexRecord& entry, const std::string& sha256,
+	const std::string& label, std::string& archive);
 
 // Транзакция установки / обновления (DESIGN.md §7.6). Вызывается под блокировкой.
 ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName);
