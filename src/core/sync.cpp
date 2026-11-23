@@ -200,7 +200,8 @@ ExitCode syncIndex(const FlanPaths& paths) {
 	case RollbackVerdict::Rollback:
 		deleteFile(candidate);
 		con::err << "Error: the received index is older than the current one (generated " << formatUnixTime(incoming.generatedAt)
-			<< ", current " << formatUnixTime(last.generatedAt) << "). This looks like a rollback; the current index is kept." << con::endl;
+			<< ", current " << formatUnixTime(last.generatedAt) << "; generated_at " << (unsigned long long)incoming.generatedAt
+			<< " < " << (unsigned long long)last.generatedAt << "). This looks like a rollback; the current index is kept." << con::endl;
 		return ExitCode::Integrity;
 	}
 
