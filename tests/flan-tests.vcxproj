@@ -155,6 +155,7 @@
     <ClCompile Include="test_receipt.cpp" />
     <ClCompile Include="test_setup.cpp" />
     <ClCompile Include="test_signature.cpp" />
+    <ClCompile Include="test_keystore.cpp" />
     <ClCompile Include="test_validate.cpp" />
     <ClCompile Include="test_zip.cpp" />
     <!-- Тестируемый код: разбор индекса, квитанции и прослойки клиента, писатель генератора -->
@@ -166,6 +167,7 @@
     <ClCompile Include="..\src\crypto\sha256.cpp" />
     <ClCompile Include="..\src\crypto\signature.cpp" />
     <ClCompile Include="..\tools\flan-build\signing.cpp" />
+    <ClCompile Include="..\tools\flan-build\keystore.cpp" />
     <ClCompile Include="..\src\io\console.cpp" />
     <ClCompile Include="..\src\io\fs.cpp" />
     <ClCompile Include="..\src\io\inflate.cpp" />

@@ -514,10 +514,10 @@ void runIndexTests() {
 
 		std::vector<uint8_t> file;
 		std::string err;
-		check(buildIndexFile(entries, 1795000000, file, err), "buildIndexFile on unsorted input", err);
+		check(buildIndexFile(entries, 1795000000, testKey(), file, err), "buildIndexFile on unsorted input", err);
 
 		IndexView v;
-		const bool ok = v.open(file, err, unsignedTrust()) && v.validateAll(err);
+		const bool ok = v.open(file, err, testTrust()) && v.validateAll(err);
 		check(ok, "client accepts generated index", err);
 		check(v.count() == 3 && v.generatedAt() == 1795000000, "count and generated_at");
 
@@ -534,8 +534,8 @@ void runIndexTests() {
 		std::memcpy(&env, file.data(), sizeof(env));
 		bool zeroSignature = true;
 		for (const uint8_t b : env.signature) zeroSignature = zeroSignature && b == 0;
-		check(env.key_id == KEY_ID_UNSIGNED && env.compression == COMPRESSION_DEFLATE && zeroSignature &&
-			env.payload_size + sizeof(Envelope) == file.size(), "unsigned, deflate-compressed envelope");
+		check(env.key_id == TEST_INDEX_KEY && env.compression == COMPRESSION_DEFLATE && !zeroSignature &&
+			env.payload_size + sizeof(Envelope) == file.size(), "signed (key_id 7), deflate-compressed envelope");
 	}
 	{
 		std::vector<uint8_t> file;
@@ -544,10 +544,10 @@ void runIndexTests() {
 			buildEntry("alpha", ARCH_X64, "https://example.com/a.zip", 1),
 			buildEntry("alpha", ARCH_X64, "https://example.com/b.zip", 2),
 		};
-		check(!buildIndexFile(duplicate, 1, file, err), "duplicate (name, arch) rejected by writer", err);
+		check(!buildIndexFile(duplicate, 1, testKey(), file, err), "duplicate (name, arch) rejected by writer", err);
 
 		IndexView v;
-		check(buildIndexFile({}, 1, file, err) && v.open(file, err, unsignedTrust()) && v.validateAll(err) && v.count() == 0,
+		check(buildIndexFile({}, 1, testKey(), file, err) && v.open(file, err, testTrust()) && v.validateAll(err) && v.count() == 0,
 			"empty index round trip", err);
 	}
 }

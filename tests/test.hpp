@@ -21,3 +21,4 @@ void runConsoleTests();
 void runZipTests();
 void runSetupTests();
 void runSignatureTests();
+void runKeystoreTests();

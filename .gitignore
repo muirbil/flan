@@ -372,3 +372,10 @@ db/
 docs/
 
 .vscode
+
+# Ключи подписи индекса (DESIGN.md §6.3): рабочие копии и резервные копии никогда не коммитятся.
+# Исключение — тестовые ключи 240 и 241, известные только Debug-сборкам.
+*.flankey
+*.flankey-backup
+!tests/keys/flan-key-240.flankey-backup
+!tests/keys/flan-key-241.flankey-backup

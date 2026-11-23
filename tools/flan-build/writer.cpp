@@ -3,6 +3,7 @@
 
 #include <windows.h>
 #include "build.hpp"
+#include "signing.hpp"
 #include "flan/format.hpp"
 #include "flan/index.hpp"
 
@@ -19,7 +20,8 @@
 #include <fstream>
 #include <map>
 
-bool buildIndexFile(std::vector<BuildEntry> entries, uint64_t generatedAt, std::vector<uint8_t>& file, std::string& error) {
+bool buildIndexFile(std::vector<BuildEntry> entries, uint64_t generatedAt, const SigningKey& key,
+	std::vector<uint8_t>& file, std::string& error) {
 	file.clear();
 
 	// Порядок — та же функция, которой клиент проверяет сортировку и ищет запись.
@@ -106,7 +108,7 @@ bool buildIndexFile(std::vector<BuildEntry> entries, uint64_t generatedAt, std::
 	body.insert(body.end(), pool.begin(), pool.end());
 
 	// Тело сжимается raw deflate (DESIGN.md §6.1): на медленном канале индекс — самое
-	// частое, что качается. До этапа 4 индекс не подписан (key_id = 0, подпись — нули).
+	// частое, что качается.
 	std::vector<uint8_t> payload;
 	if (!deflateRaw(body, payload)) {
 		error = "cannot compress the index body";
@@ -130,6 +132,12 @@ bool buildIndexFile(std::vector<BuildEntry> entries, uint64_t generatedAt, std::
 	file.resize(sizeof(Envelope));
 	std::memcpy(file.data(), &envelope, sizeof(envelope));
 	file.insert(file.end(), payload.begin(), payload.end());
+
+	// Подпись покрывает первые 24 байта конверта (с key_id) и тело (DESIGN.md §6.1).
+	if (!signIndexFile(file, key, error)) {
+		file.clear();
+		return false;
+	}
 	return true;
 }
 

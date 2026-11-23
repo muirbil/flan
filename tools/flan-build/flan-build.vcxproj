@@ -154,6 +154,7 @@
     <ClCompile Include="..\..\src\crypto\sha256.cpp" />
     <ClCompile Include="..\..\src\crypto\signature.cpp" />
     <ClCompile Include="signing.cpp" />
+    <ClCompile Include="keystore.cpp" />
     <ClCompile Include="..\..\src\io\console.cpp" />
     <ClCompile Include="..\..\src\io\fs.cpp" />
     <ClCompile Include="..\..\src\io\inflate.cpp" />
@@ -172,6 +173,7 @@
     <ClInclude Include="..\..\include\flan\keys.hpp" />
     <ClInclude Include="..\..\include\flan\signature.hpp" />
     <ClInclude Include="signing.hpp" />
+    <ClInclude Include="keystore.hpp" />
     <ClInclude Include="..\..\include\flan\strings.hpp" />
     <ClInclude Include="..\..\include\flan\validate.hpp" />
     <ClInclude Include="..\..\third_party\nlohmann\json.hpp" />
