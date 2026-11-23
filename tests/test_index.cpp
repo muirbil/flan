@@ -465,6 +465,24 @@ void runIndexTests() {
 	badPkg("exe with a folder in bin", [](Pkg& p) { p.kind = KIND_EXE; p.extractDir = ""; p.bins = "bin\\jq.exe"; });
 	badPkg("exe with extract_dir", [](Pkg& p) { p.kind = KIND_EXE; p.bins = "rg.exe"; });
 
+	// Пакет flan и зарезервированная команда flan (DESIGN.md §5.3).
+	beginSuite("index: the flan package");
+	{
+		auto expect = [](const char* label, const Pkg& pkg, const char* reason) {
+			IndexView v;
+			std::string err;
+			const bool accepted = v.open(rawIndex({ pkg }), err, testTrust()) && v.validateAll(err);
+			check(reason == nullptr ? accepted : (!accepted && err.find(reason) != std::string::npos), label, err);
+		};
+		const char* url = "https://github.com/muirbil/flan/releases/download/v0.4.0/flan-x64.exe";
+		expect("flan as a single flan.exe", { "flan", "0.4.0", url, "", "flan.exe", "flan", 189952, ARCH_X64, KIND_EXE }, nullptr);
+		expect("flan as a zip", { "flan", "0.4.0", url, "", "flan.exe", "", 1, ARCH_X64, KIND_ZIP }, "must be a single flan.exe");
+		expect("flan with another bin name", { "flan", "0.4.0", url, "", "flan2.exe", "", 1, ARCH_X64, KIND_EXE }, "must be a single flan.exe");
+		expect("another package with flan.exe", { "evil", "1.0", url, "", "flan.exe", "", 1, ARCH_X64, KIND_EXE }, "reserved for flan");
+		expect("another package with bin\\FLAN.EXE", { "evil", "1.0", "https://example.com/e.zip", "", "bin\\FLAN.EXE", "", 1, ARCH_X64, KIND_ZIP },
+			"reserved for flan");
+	}
+
 	beginSuite("pe header");
 	expectPe("x64 executable as x64", fakePe(0x8664, 0x0022), ARCH_X64, true);
 	expectPe("x86 executable as x86", fakePe(0x014C, 0x0102), ARCH_X86, true);

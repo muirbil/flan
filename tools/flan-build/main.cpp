@@ -425,6 +425,26 @@ namespace {
 				errors.push_back(file.filename().string() + ": duplicate package name '" + manifest.name + "'");
 				continue;
 			}
+
+			// Пакет flan и зарезервированная команда flan (DESIGN.md §5.3) — те же правила, что в клиенте.
+			bool claimsFlan = false;
+			for (const std::string& bin : manifest.bins) {
+				claimsFlan = claimsFlan || toLowerAscii(commandNameFromBin(bin)) == "flan";
+			}
+			if (manifest.name == "flan") {
+				bool allExe = !manifest.targets.empty();
+				for (const ArchTarget& target : manifest.targets) {
+					allExe = allExe && target.kind == KIND_EXE;
+				}
+				if (manifest.bins.size() != 1 || manifest.bins[0] != "flan.exe" || !allExe) {
+					errors.push_back(file.filename().string() + ": the flan package must be a single flan.exe with kind exe for every arch");
+					continue;
+				}
+			}
+			else if (claimsFlan) {
+				errors.push_back(file.filename().string() + ": the command 'flan' is reserved for flan itself");
+				continue;
+			}
 			manifests.push_back(std::move(manifest));
 		}
 

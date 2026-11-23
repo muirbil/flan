@@ -1,6 +1,35 @@
 // flan.exe resources (DESIGN.md 7.4): the reference shim.exe of the same platform and
 // configuration. bin\$(Platform)\$(Configuration) is on the RC include path, so "shim.exe"
 // is the file that the shim project has just built.
+#include <winver.h>
 #include "flan/resource.h"
+#include "flan/version.h"
 
 IDR_SHIM RCDATA "shim.exe"
+
+// Version (DESIGN.md 7.7): the same string as 'flan --version'.
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION FLAN_VERSION_MAJOR, FLAN_VERSION_MINOR, FLAN_VERSION_PATCH, 0
+ PRODUCTVERSION FLAN_VERSION_MAJOR, FLAN_VERSION_MINOR, FLAN_VERSION_PATCH, 0
+ FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+ FILEFLAGS 0
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "flan package manager"
+            VALUE "FileVersion", FLAN_VERSION_STRING
+            VALUE "ProductName", "flan"
+            VALUE "ProductVersion", FLAN_VERSION_STRING
+            VALUE "OriginalFilename", "flan.exe"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

@@ -65,3 +65,6 @@
 # Вендоренный код хранится байт в байт, как в релизе: хэши в third_party/README.md
 # должны совпадать и в свежем клоне при core.autocrlf.
 third_party/miniz/** -text
+
+# Резервные копии тестовых ключей (tests/keys) — двоичные файлы, байт в байт.
+*.flankey-backup binary

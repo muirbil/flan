@@ -343,6 +343,13 @@ ExitCode uninstallPackage(const FlanPaths& paths, const std::string& requestedNa
 		return ExitCode::Usage;
 	}
 
+	// Сам flan — не пакет в apps\ (DESIGN.md §7.7, §7.9).
+	if (name == "flan") {
+		con::err << "Error: flan is not installed in apps\\ and cannot be uninstalled like a package. To take it out of your PATH, "
+			"run 'flan setup --remove'; then delete " << paths.home << " if you no longer need it." << con::endl;
+		return ExitCode::Usage;
+	}
+
 	Receipt receipt;
 	std::string error;
 	const ReceiptState state = readReceipt(paths, name, receipt, error);
@@ -394,6 +401,12 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 	const std::string name = toLowerAscii(requestedName);
 	if (!isSafePackageName(name)) {
 		con::err << "Error: '" << requestedName << "' is not a valid package name." << con::endl;
+		return ExitCode::Usage;
+	}
+
+	// Сам flan обновляется на месте, в bin\, а не ставится в apps\ (DESIGN.md §7.9).
+	if (name == "flan") {
+		con::err << "Error: flan updates itself: run 'flan upgrade flan'." << con::endl;
 		return ExitCode::Usage;
 	}
 

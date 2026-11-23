@@ -215,6 +215,7 @@
     <ClInclude Include="include\flan\sha256.hpp" />
     <ClInclude Include="include\flan\keys.hpp" />
     <ClInclude Include="include\flan\signature.hpp" />
+    <ClInclude Include="include\flan\version.h" />
     <ClInclude Include="include\flan\strings.hpp" />
     <ClInclude Include="include\flan\validate.hpp" />
     <ClInclude Include="include\flan\zip.hpp" />

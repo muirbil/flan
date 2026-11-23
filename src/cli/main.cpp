@@ -17,6 +17,7 @@
 #include "core/setup.hpp"
 #include "core/shim.hpp"
 #include "core/sync.hpp"
+#include "flan/version.h"
 
 // cli — разбор аргументов, вывод и коды возврата (DESIGN.md §4); вся работа — в core/.
 
@@ -28,9 +29,16 @@ namespace {
 		con::out << "  sync                  update the package index" << con::endl;
 		con::out << "  list                  available packages" << con::endl;
 		con::out << "  install <package>     install or update a package" << con::endl;
+		con::out << "  upgrade [package...]  update the given packages, or all that changed (flan itself last)" << con::endl;
 		con::out << "  uninstall <package>   remove a package" << con::endl;
 		con::out << "  installed             installed packages" << con::endl;
 		con::out << "  setup [--remove]      put flan in bin\\ and bin\\ in your PATH (--remove: take it out of PATH)" << con::endl;
+		con::out << "Options: --version, --help" << con::endl;
+	}
+
+	// "flan 0.4.0 (x64)" (DESIGN.md §7.7). Самообновление разбирает эту строку у flan.exe.new (§7.9).
+	void printVersion() {
+		con::out << "flan " << FLAN_VERSION_STRING << (sizeof(void*) == 8 ? " (x64)" : " (x86)") << con::endl;
 	}
 
 	// Запущен ли процесс с повышенными правами (DESIGN.md §1): flan они не нужны.
@@ -137,6 +145,17 @@ int wmain(int argc, wchar_t* argv[]) {
 	}
 
 	const std::string command = args[1];
+
+	// До FLAN_HOME и любых действий с диском: `flan.exe.new --version` при самообновлении (§7.9)
+	// не должен ни удалять flan.exe.old, ни создавать каталоги.
+	if (command == "--version" && argc == 2) {
+		printVersion();
+		return exitWith(ExitCode::Ok);
+	}
+	if (command == "--help" || command == "-h" || command == "/?") {
+		printUsage();
+		return exitWith(ExitCode::Ok);
+	}
 
 	const bool knownCommand = command == "sync" || command == "list" || command == "install" ||
 		command == "uninstall" || command == "installed" || command == "setup";

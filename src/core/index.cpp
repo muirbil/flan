@@ -299,6 +299,22 @@ bool IndexView::decode(uint32_t i, const IndexEntry& entry, IndexRecord& out, st
 		return false;
 	}
 
+	// Пакет flan — сам flan (DESIGN.md §5.3, §7.9): один flan.exe. Команда flan зарезервирована за ним.
+	if (out.name == "flan") {
+		if (entry.kind != KIND_EXE || out.bins[0] != "flan.exe") {
+			error = where + "the flan package must be a single flan.exe (kind exe)";
+			return false;
+		}
+	}
+	else {
+		for (const std::string& bin : out.bins) {
+			if (toLowerAscii(commandNameFromBin(bin)) == "flan") {
+				error = where + "the command 'flan' is reserved for flan itself";
+				return false;
+			}
+		}
+	}
+
 	out.archiveSize = entry.archive_size;
 	out.arch = entry.arch;
 	out.kind = entry.kind;

@@ -116,6 +116,9 @@
     <ClInclude Include="include\flan\signature.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\flan\version.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="include\flan\strings.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
