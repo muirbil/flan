@@ -76,7 +76,11 @@ namespace {
 			return false;
 		}
 
-		if (!view.open(std::move(file), error) || !view.validateAll(error)) {
+		// Подписанный предыдущий индекс проверяется подписью; неподписанный допустим только здесь —
+		// поверх него собирается первый подписанный (DESIGN.md §8, «Подпись индекса»).
+		IndexTrust trust = builtInTrust();
+		trust.allowUnsigned = true;
+		if (!view.open(std::move(file), error, trust) || !view.validateAll(error)) {
 			error = "previous index " + path.string() + " is invalid: " + error;
 			return false;
 		}
@@ -355,8 +359,11 @@ namespace {
 
 		// Самопроверка: собранный файл читается тем же кодом, что и в клиенте,
 		// и каждая сборка находится с теми же данными, что ушли в запись.
+		// До подписи в генераторе (этап 4, шаг 4) индекс ещё не подписан и клиентом не принимается.
+		IndexTrust unsignedForNow = builtInTrust();
+		unsignedForNow.allowUnsigned = true;
 		IndexView check;
-		if (!check.open(file, error) || !check.validateAll(error)) {
+		if (!check.open(file, error, unsignedForNow) || !check.validateAll(error)) {
 			std::cerr << "Error: the generated index is rejected by the client validator: " << error << std::endl;
 			return 1;
 		}

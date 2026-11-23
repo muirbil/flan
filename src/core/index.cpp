@@ -1,8 +1,26 @@
 #include "flan/index.hpp"
 #include "flan/inflate.hpp"
+#include "flan/sha256.hpp"
+#include "flan/signature.hpp"
 #include "flan/validate.hpp"
 #include <cstring>
 #include <utility>
+
+IndexTrust builtInTrust() {
+	IndexTrust trust;
+	trust.keys = builtInKeys(trust.count);
+	return trust;
+}
+
+bool indexSignedDigest(const std::vector<uint8_t>& file, uint8_t digest[32]) {
+	if (file.size() < sizeof(Envelope)) {
+		return false;
+	}
+	crypto::Sha256 hash;
+	hash.update(file.data(), SIGNED_ENVELOPE_PREFIX);
+	hash.update(file.data() + sizeof(Envelope), file.size() - sizeof(Envelope));
+	return hash.finish(digest);
+}
 
 int compareIndexKeys(const std::string& nameA, uint8_t archA, const std::string& nameB, uint8_t archB) {
 	// std::string::compare сравнивает char как unsigned char, то есть побайтово.
@@ -34,10 +52,11 @@ bool archFromName(const std::string& name, uint8_t& arch) {
 	return false;
 }
 
-bool IndexView::open(std::vector<uint8_t> file, std::string& error) {
+bool IndexView::open(std::vector<uint8_t> file, std::string& error, const IndexTrust& trust) {
 	file_ = std::move(file);
 	body_.clear();
 	header_ = {};
+	keyId_ = KEY_ID_UNSIGNED;
 	entriesOffset_ = stringsOffset_ = stringsSize_ = 0;
 
 	// Вся арифметика смещений — в 64 битах: в 32-битной сборке произведения
@@ -74,18 +93,43 @@ bool IndexView::open(std::vector<uint8_t> file, std::string& error) {
 		return false;
 	}
 
-	// До этапа 4 встроенных ключей нет, и известен только key_id = 0 — «без подписи».
-	if (envelope.key_id != KEY_ID_UNSIGNED) {
-		error = "index is signed with key " + std::to_string(envelope.key_id) + ", unknown to this version of flan";
-		return false;
+	// Шаги 2–3: известный ключ и подпись. Неподписанный индекс клиент не принимает безусловно —
+	// без флагов и переменных окружения, иначе «снять подпись» было бы тривиально (§6.1).
+	if (envelope.key_id == KEY_ID_UNSIGNED) {
+		if (!trust.allowUnsigned) {
+			error = "index is not signed; this version of flan accepts only signed indexes";
+			return false;
+		}
+		for (const uint8_t b : envelope.signature) {
+			if (b != 0) {
+				error = "unsigned index carries a non-zero signature";
+				return false;
+			}
+		}
 	}
+	else {
+		const IndexKey* key = nullptr;
+		for (size_t i = 0; i < trust.count && key == nullptr; i++) {
+			if (trust.keys[i].id == envelope.key_id) {
+				key = &trust.keys[i];
+			}
+		}
+		if (key == nullptr) {
+			error = "index is signed with key " + std::to_string(envelope.key_id) + ", unknown to this version of flan";
+			return false;
+		}
 
-	for (const uint8_t b : envelope.signature) {
-		if (b != 0) {
-			error = "unsigned index carries a non-zero signature";
+		uint8_t digest[32];
+		if (!indexSignedDigest(file_, digest)) {
+			error = "cannot hash the index";
+			return false;
+		}
+		if (!crypto::verifyP256(key->publicKey, digest, envelope.signature)) {
+			error = "index signature is invalid (the file is corrupted or tampered with)";
 			return false;
 		}
 	}
+	keyId_ = envelope.key_id;
 
 	// Шаг 4: тело. Потолок raw_size проверяется до распаковки, а распакованное
 	// обязано быть ровно raw_size байт (DESIGN.md §6.1).
@@ -167,6 +211,10 @@ uint32_t IndexView::count() const {
 
 uint64_t IndexView::generatedAt() const {
 	return header_.generated_at;
+}
+
+uint8_t IndexView::keyId() const {
+	return keyId_;
 }
 
 void IndexView::entryAt(uint32_t i, IndexEntry& entry) const {

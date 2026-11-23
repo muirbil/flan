@@ -1,5 +1,6 @@
 #include "test.hpp"
 #include "build.hpp"
+#include "signing.hpp"
 #include "flan/index.hpp"
 #include "flan/validate.hpp"
 #include <cstring>
@@ -10,8 +11,53 @@
 // Разбор index.flan (формат 2). Испорченные файлы собирает свой «сырой» писатель:
 // настоящий (buildIndexFile) не умеет писать неотсортированный или битый индекс,
 // а именно такие клиент обязан отвергать.
+//
+// Все индексы подписаны ключом, созданным при запуске тестов (DESIGN.md §6.3). После каждой
+// порчи подпись пересчитывается: иначе файл отвергался бы подписью, а не той проверкой,
+// которую тест хочет увидеть.
 
 namespace {
+
+	constexpr uint8_t TEST_INDEX_KEY = 7;
+
+	const SigningKey& testKey() {
+		static SigningKey key;
+		static bool made = false;
+		if (!made) {
+			std::string error;
+			made = generateSigningKey(TEST_INDEX_KEY, key, error);
+		}
+		return key;
+	}
+
+	IndexTrust testTrust() {
+		static IndexKey keys[1];
+		keys[0].id = testKey().id;
+		std::memcpy(keys[0].publicKey, testKey().publicKey, 64);
+		IndexTrust trust;
+		trust.keys = keys;
+		trust.count = 1;
+		return trust;
+	}
+
+	IndexTrust unsignedTrust() {
+		IndexTrust trust = testTrust();
+		trust.allowUnsigned = true;
+		return trust;
+	}
+
+	// Подписать тестовым ключом (key_id = 7).
+	std::vector<uint8_t> sealed(std::vector<uint8_t> file) {
+		std::string error;
+		signIndexFile(file, testKey(), error);
+		return file;
+	}
+
+	// Пересчитать подпись, не трогая key_id.
+	void reseal(std::vector<uint8_t>& file) {
+		std::string error;
+		resignIndexFile(file, testKey(), error);
+	}
 
 	struct Pkg {
 		std::string name, version, url, extractDir, bins, description;
@@ -65,7 +111,7 @@ namespace {
 		std::vector<uint8_t> file(sizeof(env));
 		std::memcpy(file.data(), &env, sizeof(env));
 		file.insert(file.end(), body.begin(), body.end());
-		return file;
+		return sealed(file);
 	}
 
 	const char* RG_URL = "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip";
@@ -83,7 +129,7 @@ namespace {
 	void expectRejected(const char* label, std::vector<uint8_t> file) {
 		IndexView v;
 		std::string err;
-		const bool accepted = v.open(std::move(file), err) && v.validateAll(err);
+		const bool accepted = v.open(std::move(file), err, testTrust()) && v.validateAll(err);
 		check(!accepted, label, accepted ? "ACCEPTED" : err);
 	}
 
@@ -93,6 +139,7 @@ namespace {
 		std::memcpy(&e, file.data(), sizeof(e));
 		f(e);
 		std::memcpy(file.data(), &e, sizeof(e));
+		reseal(file);
 		expectRejected(label, file);
 	}
 
@@ -102,6 +149,7 @@ namespace {
 		std::memcpy(&h, file.data() + sizeof(Envelope), sizeof(h));
 		f(h);
 		std::memcpy(file.data() + sizeof(Envelope), &h, sizeof(h));
+		reseal(file);
 		expectRejected(label, file);
 	}
 
@@ -112,6 +160,7 @@ namespace {
 		std::memcpy(&e, file.data() + off, sizeof(e));
 		f(e);
 		std::memcpy(file.data() + off, &e, sizeof(e));
+		reseal(file);
 		expectRejected(label, file);
 	}
 
@@ -133,7 +182,7 @@ namespace {
 		std::vector<uint8_t> file(sizeof(env));
 		std::memcpy(file.data(), &env, sizeof(env));
 		file.insert(file.end(), payload.begin(), payload.end());
-		return file;
+		return sealed(file);
 	}
 
 	// Тот же индекс, что rawIndex, но с телом, сжатым настоящим deflateRaw генератора.
@@ -147,12 +196,13 @@ namespace {
 	}
 
 	// После правки сжатого тела payload_size должен снова совпадать с размером файла,
-	// иначе отказ случится на шаге 1, а не на распаковке, которую хотим проверить.
+	// иначе отказ случится на шаге 1, а не на распаковке, которую хотим проверить. Подпись — заново.
 	void setPayloadSize(std::vector<uint8_t>& file) {
 		Envelope env;
 		std::memcpy(&env, file.data(), sizeof(env));
 		env.payload_size = (uint32_t)(file.size() - sizeof(Envelope));
 		std::memcpy(file.data(), &env, sizeof(env));
+		reseal(file);
 	}
 
 	// Минимальный заголовок PE: MZ, e_lfanew, "PE\0\0", Machine и Characteristics.
@@ -195,7 +245,7 @@ void runIndexTests() {
 	{
 		IndexView v;
 		std::string err;
-		const bool ok = v.open(rawIndex(goodPkgs()), err) && v.validateAll(err);
+		const bool ok = v.open(rawIndex(goodPkgs()), err, testTrust()) && v.validateAll(err);
 		check(ok, "valid index accepted", err);
 		check(v.count() == 4, "count = 4");
 		check(v.generatedAt() == 1763500000, "generated_at read");
@@ -215,7 +265,7 @@ void runIndexTests() {
 		IndexView v;
 		std::string err;
 		IndexRecord r;
-		const bool ok = v.open(rawIndex({}), err) && v.validateAll(err);
+		const bool ok = v.open(rawIndex({}), err, testTrust()) && v.validateAll(err);
 		check(ok && v.find("x", ARCH_X64, r, err) == FindResult::NotFound, "empty index accepted, find -> not found", err);
 	}
 	{
@@ -223,7 +273,7 @@ void runIndexTests() {
 		IndexView v;
 		std::string err;
 		IndexRecord r;
-		const bool ok = v.open(rawIndex(goodPkgs(), sizeof(IndexEntry) + 24), err) && v.validateAll(err) &&
+		const bool ok = v.open(rawIndex(goodPkgs(), sizeof(IndexEntry) + 24), err, testTrust()) && v.validateAll(err) &&
 			v.find("ripgrep", ARCH_X64, r, err) == FindResult::Found && r.archiveSize == 1789611;
 		check(ok, "longer entry_size accepted", err);
 	}
@@ -237,7 +287,6 @@ void runIndexTests() {
 	mutateEnvelope("envelope_version 2", [](Envelope& e) { e.envelope_version = 2; });
 	mutateEnvelope("reserved != 0", [](Envelope& e) { e.reserved = 1; });
 	mutateEnvelope("key_id 1 (unknown key)", [](Envelope& e) { e.key_id = 1; });
-	mutateEnvelope("key_id 0 with non-zero signature", [](Envelope& e) { e.signature[63] = 1; });
 	mutateEnvelope("compression 1 over an uncompressed body", [](Envelope& e) { e.compression = COMPRESSION_DEFLATE; });
 	mutateEnvelope("compression 2 (unknown)", [](Envelope& e) { e.compression = 2; });
 	mutateEnvelope("raw_size != payload_size", [](Envelope& e) { e.raw_size -= 1; });
@@ -250,14 +299,14 @@ void runIndexTests() {
 		IndexView v;
 		std::string err;
 		IndexRecord r;
-		check(v.open(compressedIndex(goodPkgs()), err) && v.validateAll(err) &&
+		check(v.open(compressedIndex(goodPkgs()), err, testTrust()) && v.validateAll(err) &&
 			v.find("ripgrep", ARCH_X64, r, err) == FindResult::Found && r.archiveSize == 1789611, "valid compressed index", err);
 	}
 	expectRejected("raw_size one byte too small", compressedIndex(goodPkgs(), -1));
 	expectRejected("raw_size one byte too large", compressedIndex(goodPkgs(), +1));
 	{ auto f = compressedIndex(goodPkgs()); f.push_back(0x42); setPayloadSize(f); expectRejected("data after the deflate stream", f); }
 	{ auto f = compressedIndex(goodPkgs()); f.resize(f.size() - 5); setPayloadSize(f); expectRejected("truncated deflate stream", f); }
-	{ auto f = compressedIndex(goodPkgs()); for (size_t i = sizeof(Envelope); i < f.size(); i++) f[i] ^= 0x5A; expectRejected("garbage deflate stream", f); }
+	{ auto f = compressedIndex(goodPkgs()); for (size_t i = sizeof(Envelope); i < f.size(); i++) f[i] ^= 0x5A; reseal(f); expectRejected("garbage deflate stream", f); }
 	{
 		// «Бомба»: 20 МБ нулей сжимаются в десятки килобайт, а raw_size заявлен 1 МБ —
 		// распаковка обязана остановиться на 1 МБ, а не раздуть память.
@@ -270,6 +319,78 @@ void runIndexTests() {
 		std::vector<uint8_t> packed;
 		deflateRaw(std::vector<uint8_t>(64, 0), packed);
 		expectRejected("raw_size over 32 MB", envelopeAround(packed, 33u * 1024 * 1024));
+	}
+
+	// Подпись (DESIGN.md §6.1, шаги 2–3): неподписанный индекс клиент не принимает никогда,
+	// а любой изменённый байт подписанного даёт отказ — до распаковки и разбора.
+	beginSuite("index: signature");
+	{
+		IndexView v;
+		std::string err;
+		check(v.open(rawIndex(goodPkgs()), err, testTrust()) && v.keyId() == TEST_INDEX_KEY, "signed index: key_id read", err);
+	}
+	{
+		auto unsignedFile = rawIndex(goodPkgs());
+		unsignedFile[offsetof(Envelope, key_id)] = KEY_ID_UNSIGNED;
+		std::memset(unsignedFile.data() + offsetof(Envelope, signature), 0, 64);
+
+		IndexView v;
+		std::string err;
+		check(!v.open(unsignedFile, err, testTrust()) && err.find("not signed") != std::string::npos,
+			"unsigned index rejected by the client", err);
+		check(v.open(unsignedFile, err, unsignedTrust()) && v.keyId() == KEY_ID_UNSIGNED,
+			"unsigned index accepted only with allowUnsigned (flan-build, previous index)", err);
+
+		auto withSignature = unsignedFile;
+		withSignature[offsetof(Envelope, signature) + 63] = 1;
+		check(!v.open(withSignature, err, unsignedTrust()) && err.find("non-zero signature") != std::string::npos,
+			"unsigned index with a non-zero signature rejected even with allowUnsigned", err);
+	}
+	{
+		IndexView v;
+		std::string err;
+		check(!v.open(rawIndex(goodPkgs()), err) && err.find("unknown to this version") != std::string::npos,
+			"built-in trust does not know the runtime test key", err);
+	}
+	{
+		auto file = rawIndex(goodPkgs());
+		auto other = file;
+		SigningKey stranger;
+		std::string err;
+		generateSigningKey(TEST_INDEX_KEY, stranger, err);
+		signIndexFile(other, stranger, err);
+		IndexView v;
+		check(!v.open(other, err, testTrust()) && err.find("signature is invalid") != std::string::npos,
+			"same key number, different key: rejected", err);
+	}
+	for (const bool compressed : { false, true }) {
+		// Каждый байт файла по очереди: подпись покрывает всё, кроме самой себя, а сама она
+		// без закрытого ключа не подбирается. Байты тела и подписи отвергаются именно подписью.
+		const std::vector<uint8_t> good = compressed ? compressedIndex(goodPkgs()) : rawIndex(goodPkgs());
+		size_t accepted = 0;
+		size_t notBySignature = 0;
+		std::string firstAccepted;
+		for (size_t i = 0; i < good.size(); i++) {
+			for (const uint8_t bit : { (uint8_t)0x01, (uint8_t)0x80 }) {
+				auto file = good;
+				file[i] ^= bit;
+				IndexView v;
+				std::string err;
+				if (v.open(file, err, testTrust())) {
+					accepted++;
+					if (firstAccepted.empty()) {
+						firstAccepted = "byte " + std::to_string(i);
+					}
+				}
+				else if (i >= SIGNED_ENVELOPE_PREFIX && err.find("signature is invalid") == std::string::npos) {
+					notBySignature++;
+				}
+			}
+		}
+		const std::string kind = compressed ? "compressed" : "uncompressed";
+		check(accepted == 0, kind + ": every changed byte is rejected", firstAccepted);
+		check(notBySignature == 0, kind + ": changes after the first 24 bytes are rejected by the signature",
+			std::to_string(notBySignature) + " other reason(s)");
 	}
 
 	beginSuite("index: body header");
@@ -326,7 +447,7 @@ void runIndexTests() {
 		p[2].bins = "a.exe;b.exe;c.exe;d.exe;e.exe;f.exe;g.exe;h.exe";
 		IndexView v;
 		std::string err;
-		check(v.open(rawIndex(p), err) && v.validateAll(err), "bins 8 entries accepted", err);
+		check(v.open(rawIndex(p), err, testTrust()) && v.validateAll(err), "bins 8 entries accepted", err);
 	}
 
 	// kind = exe (DESIGN.md §5.2): ровно один bin без подкаталогов, без extract_dir.
@@ -337,7 +458,7 @@ void runIndexTests() {
 		IndexView v;
 		std::string err;
 		IndexRecord r;
-		check(v.open(rawIndex(p), err) && v.validateAll(err) && v.find("zz", ARCH_X64, r, err) == FindResult::Found &&
+		check(v.open(rawIndex(p), err, testTrust()) && v.validateAll(err) && v.find("zz", ARCH_X64, r, err) == FindResult::Found &&
 			r.kind == KIND_EXE && r.bins.size() == 1 && r.bins[0] == "jq.exe" && r.extractDir.empty(), "exe entry accepted", err);
 	}
 	badPkg("exe with two bins", [](Pkg& p) { p.kind = KIND_EXE; p.extractDir = ""; p.bins = "a.exe;b.exe"; });
@@ -376,7 +497,7 @@ void runIndexTests() {
 		IndexView v;
 		std::string err;
 		IndexRecord r;
-		const bool opened = v.open(rawIndex(p), err);
+		const bool opened = v.open(rawIndex(p), err, testTrust());
 		const FindResult fr = v.find("ripgrep", ARCH_X64, r, err);
 		check(opened && fr == FindResult::Corrupt, "open ok, find -> Corrupt", err);
 	}
@@ -396,7 +517,7 @@ void runIndexTests() {
 		check(buildIndexFile(entries, 1795000000, file, err), "buildIndexFile on unsorted input", err);
 
 		IndexView v;
-		const bool ok = v.open(file, err) && v.validateAll(err);
+		const bool ok = v.open(file, err, unsignedTrust()) && v.validateAll(err);
 		check(ok, "client accepts generated index", err);
 		check(v.count() == 3 && v.generatedAt() == 1795000000, "count and generated_at");
 
@@ -426,7 +547,7 @@ void runIndexTests() {
 		check(!buildIndexFile(duplicate, 1, file, err), "duplicate (name, arch) rejected by writer", err);
 
 		IndexView v;
-		check(buildIndexFile({}, 1, file, err) && v.open(file, err) && v.validateAll(err) && v.count() == 0,
+		check(buildIndexFile({}, 1, file, err) && v.open(file, err, unsignedTrust()) && v.validateAll(err) && v.count() == 0,
 			"empty index round trip", err);
 	}
 }

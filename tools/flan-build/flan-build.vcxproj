@@ -152,6 +152,8 @@
     <!-- Общий с клиентом код: генератор отвергает всё, что отверг бы клиент (DESIGN.md §4) -->
     <ClCompile Include="..\..\src\core\index.cpp" />
     <ClCompile Include="..\..\src\crypto\sha256.cpp" />
+    <ClCompile Include="..\..\src\crypto\signature.cpp" />
+    <ClCompile Include="signing.cpp" />
     <ClCompile Include="..\..\src\io\console.cpp" />
     <ClCompile Include="..\..\src\io\fs.cpp" />
     <ClCompile Include="..\..\src\io\inflate.cpp" />
@@ -167,6 +169,9 @@
     <ClInclude Include="..\..\include\flan\http.hpp" />
     <ClInclude Include="..\..\include\flan\index.hpp" />
     <ClInclude Include="..\..\include\flan\sha256.hpp" />
+    <ClInclude Include="..\..\include\flan\keys.hpp" />
+    <ClInclude Include="..\..\include\flan\signature.hpp" />
+    <ClInclude Include="signing.hpp" />
     <ClInclude Include="..\..\include\flan\strings.hpp" />
     <ClInclude Include="..\..\include\flan\validate.hpp" />
     <ClInclude Include="..\..\third_party\nlohmann\json.hpp" />

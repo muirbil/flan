@@ -26,6 +26,9 @@ namespace crypto {
 		// Hex в нижнем регистре; после вызова объект нужно reset() перед новым использованием.
 		std::string finishHex();
 
+		// То же, но 32 байта как есть (подпись индекса, DESIGN.md §6.1). false — CNG отказал.
+		bool finish(uint8_t digest[32]);
+
 	private:
 		void open();
 		void close();

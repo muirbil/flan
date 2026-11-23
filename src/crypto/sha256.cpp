@@ -78,20 +78,19 @@ namespace crypto {
         open();
     }
 
-    std::string Sha256::finishHex() {
+    bool Sha256::finish(uint8_t digest[32]) {
         if (!ok_) {
-            return std::string();
+            return false;
         }
 
-        uint8_t digest[32];
-        if (BCryptFinishHash((BCRYPT_HASH_HANDLE)hash_, digest, sizeof(digest), 0) < 0) {
-            ok_ = false;
-            return std::string();
-        }
-
-        // После BCryptFinishHash объект хэша больше не пригоден.
+        // После BCryptFinishHash объект хэша больше не пригоден, удачно он отработал или нет.
         ok_ = false;
-        return toHex(digest, sizeof(digest));
+        return BCryptFinishHash((BCRYPT_HASH_HANDLE)hash_, digest, 32, 0) >= 0;
+    }
+
+    std::string Sha256::finishHex() {
+        uint8_t digest[32];
+        return finish(digest) ? toHex(digest, sizeof(digest)) : std::string();
     }
 
     namespace {

@@ -51,9 +51,10 @@ namespace {
 	ExitCode listAvailable(const FlanPaths& paths) {
 		IndexView index;
 		std::string error;
-		if (!loadLocalIndex(paths, index, error)) {
+		const ExitCode loaded = loadLocalIndex(paths, index, error);
+		if (loaded != ExitCode::Ok) {
 			con::err << "Error: " << error << "." << con::endl;
-			return ExitCode::Error;
+			return loaded;
 		}
 
 		con::out << "Available packages (index generated " << formatUnixTime(index.generatedAt()) << "):" << con::endl;

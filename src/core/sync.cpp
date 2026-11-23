@@ -115,7 +115,7 @@ ExitCode syncIndex(const FlanPaths& paths) {
 		IndexView current;
 		std::string ignored;
 		if (loadIndexState(paths, previous) && previous.source == source.location && !previous.etag.empty() &&
-			loadLocalIndex(paths, current, ignored)) {
+			loadLocalIndex(paths, current, ignored) == ExitCode::Ok) {
 			request.ifNoneMatch = previous.etag;
 		}
 
@@ -203,21 +203,25 @@ ExitCode syncIndex(const FlanPaths& paths) {
 	return ExitCode::Ok;
 }
 
-bool loadLocalIndex(const FlanPaths& paths, IndexView& view, std::string& error) {
+ExitCode loadLocalIndex(const FlanPaths& paths, IndexView& view, std::string& error) {
 	const std::string path = paths.state + "\\index.flan";
 
 	std::vector<uint8_t> file;
 	bool tooLarge = false;
 	if (!readWholeFile(path, MAX_INDEX_FILE_SIZE, file, tooLarge)) {
+		if (tooLarge) {
+			error = "the local index is larger than allowed. Run 'flan sync' to fetch it again";
+			return ExitCode::Integrity;
+		}
 		error = !pathExists(path)
 			? "no package index yet. Run 'flan sync' first"
 			: "cannot read " + path + ". Run 'flan sync' to fetch it again";
-		return false;
+		return ExitCode::Error;
 	}
 
 	if (!view.open(std::move(file), error)) {
-		error = "the local index is corrupted (" + error + "). Run 'flan sync' to fetch it again";
-		return false;
+		error = "the local index is rejected (" + error + "). Run 'flan sync' to fetch it again";
+		return ExitCode::Integrity;
 	}
-	return true;
+	return ExitCode::Ok;
 }

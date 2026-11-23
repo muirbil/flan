@@ -42,6 +42,12 @@
     <ClCompile Include="..\src\crypto\sha256.cpp">
       <Filter>Under test</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\crypto\signature.cpp">
+      <Filter>Under test</Filter>
+    </ClCompile>
+    <ClCompile Include="..\tools\flan-build\signing.cpp">
+      <Filter>Under test</Filter>
+    </ClCompile>
     <ClCompile Include="..\src\io\fs.cpp">
       <Filter>Under test</Filter>
     </ClCompile>

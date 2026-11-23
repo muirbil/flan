@@ -38,6 +38,10 @@
     <ClCompile Include="..\..\src\crypto\sha256.cpp">
       <Filter>Shared</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\crypto\signature.cpp">
+      <Filter>Shared</Filter>
+    </ClCompile>
+    <ClCompile Include="signing.cpp" />
     <ClCompile Include="..\..\src\io\fs.cpp">
       <Filter>Shared</Filter>
     </ClCompile>

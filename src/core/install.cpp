@@ -399,9 +399,10 @@ ExitCode installPackage(const FlanPaths& paths, const std::string& requestedName
 
 	IndexView index;
 	std::string error;
-	if (!loadLocalIndex(paths, index, error)) {
+	const ExitCode loaded = loadLocalIndex(paths, index, error);
+	if (loaded != ExitCode::Ok) {
 		con::err << "Error: " << error << "." << con::endl;
-		return ExitCode::Error;
+		return loaded;
 	}
 
 	// Шаг 1: запись для архитектуры ОС.

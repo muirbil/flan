@@ -9,9 +9,10 @@
 // по шагам DESIGN.md §6.1. Старый state\index.flan заменяется только проверенным файлом.
 ExitCode syncIndex(const FlanPaths& paths);
 
-// Уже принятый локальный индекс. Границы проверяются при каждом открытии;
+// Уже принятый локальный индекс. Подпись и границы проверяются при каждом открытии (§6.1);
 // строки записей — при чтении конкретной записи (DESIGN.md §6.2).
-bool loadLocalIndex(const FlanPaths& paths, IndexView& view, std::string& error);
+// Ok; Error — индекса нет или его не прочитать; Integrity — файл отвергнут (подпись, повреждение).
+ExitCode loadLocalIndex(const FlanPaths& paths, IndexView& view, std::string& error);
 
 // unix-время -> "2026-11-21 12:00 UTC" для вывода.
 std::string formatUnixTime(uint64_t seconds);

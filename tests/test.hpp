@@ -20,3 +20,4 @@ void runFsTests();
 void runConsoleTests();
 void runZipTests();
 void runSetupTests();
+void runSignatureTests();
