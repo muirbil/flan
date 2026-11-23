@@ -102,6 +102,22 @@ std::wstring pathWithoutDir(const std::wstring& value, const std::wstring& dir, 
 	return removed == 0 ? value : out;
 }
 
+size_t launchPathLength(const std::wstring& bin, const std::string& command) {
+	return bin.size() + 1 + s2ws(command).size() + 4;
+}
+
+LaunchRoom launchRoom(size_t length) {
+	if (length >= LAUNCH_PATH_LIMIT) {
+		return LaunchRoom::TooLong;
+	}
+	return length + LAUNCH_PATH_MARGIN >= LAUNCH_PATH_LIMIT ? LaunchRoom::Tight : LaunchRoom::Enough;
+}
+
+size_t longestLaunchableName(const std::wstring& bin) {
+	const size_t used = bin.size() + 1 + 4;
+	return used + 1 >= LAUNCH_PATH_LIMIT ? 0 : LAUNCH_PATH_LIMIT - 1 - used;
+}
+
 namespace {
 
 	// ----- Реестр: HKCU\Environment\Path, целиком, без раскрытия переменных (§7.8) -----
@@ -448,6 +464,55 @@ namespace {
 		}
 		return ok;
 	}
+
+	// ----- Длина пути запуска (§7.8, «Длинный путь bin\») -----
+
+	// Только предупреждение: файлы flan по длинным путям работают, не запускаются лишь сами команды.
+	void warnAboutLaunchPaths(const FlanPaths& paths) {
+		const std::wstring bin = s2ws(paths.bin);
+		std::vector<std::string> commands{ "flan" };
+		std::vector<std::string> problems;
+		for (const Receipt& receipt : listReceipts(paths, problems)) {
+			for (const std::string& file : receipt.bins) {
+				const std::string command = commandNameFromBin(file);
+				if (!command.empty()) {
+					commands.push_back(command);
+				}
+			}
+		}
+
+		std::string longest;
+		std::string tooLong;
+		size_t tooLongCount = 0;
+		for (const std::string& command : commands) {
+			const size_t length = launchPathLength(bin, command);
+			if (longest.empty() || length > launchPathLength(bin, longest)) {
+				longest = command;
+			}
+			if (launchRoom(length) == LaunchRoom::TooLong) {
+				tooLong += (tooLongCount++ == 0 ? "" : ", ") + command;
+			}
+		}
+
+		const size_t length = launchPathLength(bin, longest);
+		const LaunchRoom room = launchRoom(length);
+		if (room == LaunchRoom::Enough) {
+			return;
+		}
+		if (room == LaunchRoom::TooLong) {
+			con::err << "Warning: Windows does not start programs from paths of " << LAUNCH_PATH_LIMIT
+				<< " characters or more, so these commands will not run from a console: " << tooLong
+				<< " (" << paths.bin << "\\" << longest << ".exe is " << length << " characters)." << con::endl;
+		}
+		else {
+			con::err << "Warning: " << paths.bin << "\\" << longest << ".exe is " << length << " characters long. Windows does not start "
+				<< "programs from paths of " << LAUNCH_PATH_LIMIT << " characters or more, so a command with a name longer than "
+				<< longestLaunchableName(bin) << " characters will not run from a console." << con::endl;
+		}
+		con::err << "To fix it, use a shorter FLAN_HOME: run 'flan setup --remove', move " << paths.home
+			<< " to a short folder such as C:\\flan, set the FLAN_HOME user variable to that folder and run 'flan setup' from its bin\\."
+			<< con::endl;
+	}
 }
 
 ExitCode runSetup(const FlanPaths& paths, bool remove) {
@@ -458,5 +523,6 @@ ExitCode runSetup(const FlanPaths& paths, bool remove) {
 	bool ok = installSelf(paths);
 	ok = refreshShims(paths) && ok;
 	ok = updatePath(paths, false) && ok;
+	warnAboutLaunchPaths(paths);
 	return ok ? ExitCode::Ok : ExitCode::Error;
 }

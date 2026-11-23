@@ -58,4 +58,23 @@ void runSetupTests() {
 	check(pathWithoutDir(added, bin, removed) == longPath && removed == 1, "long PATH: removing gives back the original byte for byte");
 
 	SetEnvironmentVariableW(L"FLAN_TEST_PROFILE", NULL);
+
+	// Путь запуска (§7.8, «Длинный путь bin\»): длина в символах UTF-16, предел — 259 включительно.
+	check(launchPathLength(bin, "rg") == bin.size() + 7, "launch path: bin\\rg.exe", std::to_string(launchPathLength(bin, "rg")));
+	check(launchRoom(LAUNCH_PATH_LIMIT - LAUNCH_PATH_MARGIN - 1) == LaunchRoom::Enough, "launch room: 239 is enough");
+	check(launchRoom(LAUNCH_PATH_LIMIT - LAUNCH_PATH_MARGIN) == LaunchRoom::Tight, "launch room: 240 is tight");
+	check(launchRoom(LAUNCH_PATH_LIMIT - 1) == LaunchRoom::Tight, "launch room: 259 still starts");
+	check(launchRoom(LAUNCH_PATH_LIMIT) == LaunchRoom::TooLong, "launch room: 260 does not start");
+
+	// Кириллица считается символами UTF-16, а не байтами UTF-8.
+	std::wstring deep = L"C:\\Проверка";
+	while (deep.size() < 240) {
+		deep += L"\\длинный каталог";
+	}
+	const std::wstring deepBin = deep.substr(0, 240);
+	check(launchPathLength(deepBin, "rg") == 247, "launch path: Cyrillic counted in UTF-16 units");
+	check(longestLaunchableName(deepBin) == 14 && launchPathLength(deepBin, std::string(14, 'a')) == LAUNCH_PATH_LIMIT - 1,
+		"longest launchable name: exactly up to 259", std::to_string(longestLaunchableName(deepBin)));
+	check(longestLaunchableName(std::wstring(254, L'x')) == 0, "longest launchable name: none when bin\\ is too long");
+	check(longestLaunchableName(std::wstring(253, L'x')) == 1, "longest launchable name: one character left");
 }
