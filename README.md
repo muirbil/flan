@@ -4,7 +4,7 @@ flan is a lightweight package manager for Windows, written in C++. It is a singl
 
 ## Installation
 
-1. Download `flan-x64.exe` (64-bit Windows) or `flan-x86.exe` (32-bit Windows) from the [v0.4.0 release](https://github.com/muirbil/flan/releases/tag/v0.4.0).
+1. Download `flan-x64.exe` (64-bit Windows) or `flan-x86.exe` (32-bit Windows) from the [v0.4.1 release](https://github.com/muirbil/flan/releases/tag/v0.4.1).
 2. Run it once with `setup` from a console:
 
    ```
