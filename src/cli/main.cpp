@@ -29,9 +29,9 @@ namespace {
 		con::out << "Commands:" << con::endl;
 		con::out << "  sync                  update the package index" << con::endl;
 		con::out << "  list                  available packages" << con::endl;
-		con::out << "  install <package>     install or update a package" << con::endl;
+		con::out << "  install <package>...  install or update packages" << con::endl;
 		con::out << "  upgrade [package...]  update the given packages, or all that changed (flan itself last)" << con::endl;
-		con::out << "  uninstall <package>   remove a package" << con::endl;
+		con::out << "  uninstall <package>... remove packages" << con::endl;
 		con::out << "  installed             installed packages" << con::endl;
 		con::out << "  setup [--remove]      put flan in bin\\ and bin\\ in your PATH (--remove: take it out of PATH)" << con::endl;
 		con::out << "Options: --version, --help" << con::endl;
@@ -167,8 +167,8 @@ int wmain(int argc, wchar_t* argv[]) {
 	}
 
 	if ((command == "install" || command == "uninstall") && argc < 3) {
-		con::err << "Error: specify a package." << con::endl;
-		con::err << "Usage: flan " << command << " <package>" << con::endl;
+		con::err << "Error: specify at least one package." << con::endl;
+		con::err << "Usage: flan " << command << " <package>..." << con::endl;
 		return exitWith(ExitCode::Usage);
 	}
 
@@ -238,14 +238,20 @@ int wmain(int argc, wchar_t* argv[]) {
 	if (command == "sync") {
 		return exitWith(syncIndex(paths));
 	}
-	if (command == "install") {
-		return exitWith(installPackage(paths, args[2]));
+	// install и uninstall с несколькими пакетами (DESIGN.md §7.7): каждый — своя транзакция, сбой одного
+	// не останавливает остальные, код возврата — первой неудачи.
+	if (command == "install" || command == "uninstall") {
+		ExitCode result = ExitCode::Ok;
+		for (size_t i = 2; i < args.size(); i++) {
+			const ExitCode code = command == "install" ? installPackage(paths, args[i]) : uninstallPackage(paths, args[i]);
+			if (result == ExitCode::Ok && code != ExitCode::Ok) {
+				result = code;
+			}
+		}
+		return exitWith(result);
 	}
 	if (command == "upgrade") {
 		return exitWith(upgradePackages(paths, std::vector<std::string>(args.begin() + 2, args.end())));
-	}
-	if (command == "uninstall") {
-		return exitWith(uninstallPackage(paths, args[2]));
 	}
 	if (command == "setup") {
 		return exitWith(runSetup(paths, setupRemove));
