@@ -130,9 +130,39 @@ void runSignatureTests() {
 		check(std::memcmp(copy.privateKey, zeros.b, 32) == 0 && std::memcmp(a.privateKey, zeros.b, 32) != 0,
 			"wipe clears only its own copy of the private key");
 
+		// a — номер 1, как у настоящего рабочего ключа, но другой ключ.
+		std::string differs;
+		check(!matchesBuiltInKey(a, differs) && differs.find("differs from the key with the same number") != std::string::npos,
+			"a random key numbered 1 is not the built-in key 1", differs);
+		SigningKey stranger = a;
+		stranger.id = 99;
 		std::string notBuiltIn;
-		check(!matchesBuiltInKey(a, notBuiltIn) && notBuiltIn.find("not in keys.hpp") != std::string::npos,
-			"a random key is not a built-in key", notBuiltIn);
+		check(!matchesBuiltInKey(stranger, notBuiltIn) && notBuiltIn.find("not in keys.hpp") != std::string::npos,
+			"a key numbered 99 is not in keys.hpp", notBuiltIn);
+	}
+
+	beginSuite("signature: built-in keys");
+	{
+		size_t count = 0;
+		const IndexKey* keys = builtInKeys(count);
+		bool has1 = false;
+		bool has2 = false;
+		bool testKeys = false;
+		bool nonZero = true;
+		const Bytes64 zeros = {};
+		for (size_t i = 0; i < count; i++) {
+			has1 = has1 || keys[i].id == 1;
+			has2 = has2 || keys[i].id == 2;
+			testKeys = testKeys || keys[i].id >= FIRST_TEST_KEY_ID;
+			nonZero = nonZero && std::memcmp(keys[i].publicKey, zeros.b, 64) != 0;
+		}
+		check(has1 && has2, "the working key 1 and the reserve key 2 are built in");
+#ifdef _DEBUG
+		check(testKeys, "Debug: test keys 240 and 241 are built in");
+#else
+		check(!testKeys, "Release: no test keys");
+#endif
+		check(nonZero, "built-in keys are non-zero");
 	}
 
 	beginSuite("signature: key output");
